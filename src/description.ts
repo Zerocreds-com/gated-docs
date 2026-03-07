@@ -10,7 +10,7 @@ export function generateDescription(
   stats: Structure['stats']
 ): string {
   const parts: string[] = [];
-  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack).');
+  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram).');
 
   const sourceDescriptions: string[] = [];
 
@@ -53,6 +53,13 @@ export function generateDescription(
     sourceDescriptions.push(`Slack: ${s.count} channels`);
   }
 
+  // Telegram
+  if (stats.telegram) {
+    const t = stats.telegram;
+    const typeParts = Object.entries(t.types).map(([type, n]) => `${n} ${type}s`).join(', ');
+    sourceDescriptions.push(`Telegram: ${t.count} chats (${typeParts})`);
+  }
+
   if (sourceDescriptions.length === 0) {
     parts.push('No sources connected yet. Run: gated-info auth google --service-account <key.json>');
   } else {
@@ -62,8 +69,8 @@ export function generateDescription(
     }
   }
 
-  parts.push('Use when you need data from Google Sheets, Docs, Notion pages, or Slack messages.');
-  parts.push('Specify source parameter to narrow search to google/notion/slack.');
+  parts.push('Use when you need data from Google Sheets, Docs, Notion pages, Slack or Telegram messages.');
+  parts.push('Specify source parameter to narrow search to google/notion/slack/telegram.');
 
   return parts.join('\n');
 }

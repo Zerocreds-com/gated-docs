@@ -155,8 +155,52 @@ async function cmdAuth() {
 
     console.log(`\nNext: ${CYAN}gated-info scan${NC}`);
 
+  } else if (source === 'telegram') {
+    info('Telegram Client API auth (full access to your chats)');
+    console.log(`\n${DIM}You need api_id and api_hash from https://my.telegram.org/`);
+    console.log('  1. Go to https://my.telegram.org/ → log in with your phone');
+    console.log('  2. Click "API development tools"');
+    console.log('  3. Create an application (any name)');
+    console.log(`  4. Copy api_id (number) and api_hash (string)${NC}\n`);
+
+    const apiIdFlag = args.indexOf('--api-id');
+    const apiHashFlag = args.indexOf('--api-hash');
+
+    let apiId: number;
+    let apiHash: string;
+
+    if (apiIdFlag !== -1 && apiHashFlag !== -1 && args[apiIdFlag + 1] && args[apiHashFlag + 1]) {
+      apiId = parseInt(args[apiIdFlag + 1]);
+      apiHash = args[apiHashFlag + 1];
+    } else {
+      // Interactive input
+      const { default: input } = await import('input');
+      const apiIdStr = await input.text('api_id (number): ');
+      apiId = parseInt(apiIdStr);
+      apiHash = await input.text('api_hash (string): ');
+    }
+
+    if (!apiId || !apiHash) {
+      fail('api_id and api_hash are required');
+      process.exit(1);
+    }
+
+    info('Starting Telegram auth (you will receive a code)...');
+    const { interactiveAuth, storeTelegramCreds } = await import('../src/connectors/telegram.ts');
+    const session = await interactiveAuth(apiId, apiHash);
+
+    storeTelegramCreds({ apiId, apiHash, session });
+    ok('Telegram session stored in Keychain');
+
+    const config = loadConfig();
+    config.sources.telegram = { enabled: true };
+    saveConfig(config);
+    ok('Config updated');
+
+    console.log(`\nNext: ${CYAN}gated-info scan${NC}`);
+
   } else {
-    fail('Usage: gated-info auth <google|notion|slack> [options]');
+    fail('Usage: gated-info auth <google|notion|slack|telegram> [options]');
   }
 }
 
@@ -213,6 +257,14 @@ function cmdStatus() {
     console.log(`  Slack:  ${DIM}not configured${NC}`);
   }
 
+  const telegramCfg = config.sources.telegram;
+  if (telegramCfg?.enabled) {
+    const hasCreds = hasCredential('telegram', 'default');
+    console.log(`  Telegram: ${hasCreds ? GREEN + 'connected' : RED + 'no credentials'}${NC}`);
+  } else {
+    console.log(`  Telegram: ${DIM}not configured${NC}`);
+  }
+
   // Structure
   if (structure) {
     console.log(`\n${BOLD}Last scan:${NC} ${structure.generated_at}`);
@@ -258,6 +310,15 @@ async function cmdSearch() {
       results.push(...await searchNotion(query, 5));
     } catch (e: any) {
       warn(`Notion: ${e.message}`);
+    }
+  }
+
+  if (config.sources.telegram?.enabled) {
+    try {
+      const { searchTelegram } = await import('../src/connectors/telegram.ts');
+      results.push(...await searchTelegram(query, 5));
+    } catch (e: any) {
+      warn(`Telegram: ${e.message}`);
     }
   }
 
@@ -329,6 +390,9 @@ function cmdDeauth() {
   } else if (source === 'slack') {
     deleteCredential('slack', 'default');
     config.sources.slack = { enabled: false };
+  } else if (source === 'telegram') {
+    deleteCredential('telegram', 'default');
+    config.sources.telegram = { enabled: false };
   }
 
   saveConfig(config);
@@ -345,6 +409,7 @@ ${BOLD}Commands:${NC}
   auth google --service-account <key.json>   Connect Google Drive
   auth notion --token <ntn_xxx>              Connect Notion
   auth slack  --token <xoxb-xxx>             Connect Slack
+  auth telegram                              Connect Telegram (Client API)
   scan                                       Scan all sources, update structure
   search <query>                             Test search from CLI
   status                                     Show connection status

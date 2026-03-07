@@ -1,6 +1,6 @@
 // ── Source types ──────────────────────────────────────────
 
-export type SourceType = 'google' | 'notion' | 'slack';
+export type SourceType = 'google' | 'notion' | 'slack' | 'telegram';
 
 export interface SourceConfig {
   enabled: boolean;

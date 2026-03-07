@@ -59,9 +59,24 @@ export async function scan(): Promise<Structure> {
     }
   }
 
+  // Telegram
+  if (config.sources.telegram?.enabled) {
+    if (hasCredential('telegram', 'default')) {
+      try {
+        const { scanTelegram } = await import('./connectors/telegram.ts');
+        const docs = await scanTelegram();
+        allDocs.push(...docs);
+        process.stderr.write(`[scan] Telegram: ${docs.length} chats\n`);
+      } catch (e: any) {
+        errors.push(`Telegram: ${e.message}`);
+        process.stderr.write(`[scan] Telegram error: ${e.message}\n`);
+      }
+    }
+  }
+
   // Build stats
   const stats: Structure['stats'] = {} as any;
-  for (const source of ['google', 'notion', 'slack'] as SourceType[]) {
+  for (const source of ['google', 'notion', 'slack', 'telegram'] as SourceType[]) {
     const sourceDocs = allDocs.filter(d => d.source === source);
     if (sourceDocs.length === 0) continue;
 

@@ -37,7 +37,7 @@ server.tool(
   searchDesc,
   {
     query: z.string().describe('Search query (natural language or keywords)'),
-    source: z.enum(['google', 'notion', 'slack']).optional()
+    source: z.enum(['google', 'notion', 'slack', 'telegram']).optional()
       .describe('Filter to specific source'),
     limit: z.number().optional()
       .describe('Max results (default: 10)'),
@@ -62,6 +62,10 @@ server.tool(
         } else if (src === 'slack') {
           const { searchSlack } = await import('../connectors/slack.ts');
           const r = await searchSlack(query, maxResults);
+          results.push(...r);
+        } else if (src === 'telegram') {
+          const { searchTelegram } = await import('../connectors/telegram.ts');
+          const r = await searchTelegram(query, maxResults);
           results.push(...r);
         }
       } catch (e: any) {
@@ -99,7 +103,7 @@ server.tool(
   readDesc,
   {
     id: z.string().describe('Document/page/channel ID'),
-    source: z.enum(['google', 'notion', 'slack'])
+    source: z.enum(['google', 'notion', 'slack', 'telegram'])
       .describe('Which source this document belongs to'),
   },
   async ({ id, source }) => {
@@ -115,6 +119,9 @@ server.tool(
       } else if (source === 'slack') {
         const { readSlackChannel } = await import('../connectors/slack.ts');
         content = await readSlackChannel(id);
+      } else if (source === 'telegram') {
+        const { readTelegramChat } = await import('../connectors/telegram.ts');
+        content = await readTelegramChat(id);
       } else {
         return { content: [{ type: 'text' as const, text: `Unknown source: ${source}` }] };
       }
@@ -185,6 +192,7 @@ function getEnabledSources(): SourceType[] {
   if (config.sources.google?.enabled) sources.push('google');
   if (config.sources.notion?.enabled) sources.push('notion');
   if (config.sources.slack?.enabled) sources.push('slack');
+  if (config.sources.telegram?.enabled) sources.push('telegram');
   return sources;
 }
 
