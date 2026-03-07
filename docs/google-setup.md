@@ -2,14 +2,58 @@
 
 Complete guide to connecting Google services to gated-info. One service account — access to everything.
 
-## Quick Start (5 minutes)
+## Step 0: Get a Google Cloud Project
 
-### 1. Create Service Account
+Everything in Google Cloud lives inside a "project". You need one. It's free.
 
-**Option A: Via CLI (if gcloud installed)**
+**Already have a project?** Skip to [Step 1](#step-1-create-service-account). Your project ID is in the URL when you open [Google Cloud Console](https://console.cloud.google.com/) — it's in the top bar next to "Google Cloud", or in the URL: `console.cloud.google.com/home/dashboard?project=YOUR_PROJECT_ID`.
+
+**Don't have a project? Create one:**
+
+1. Open [Create a Project](https://console.cloud.google.com/projectcreate)
+   - If you've never used Google Cloud, you'll see a "Get started for free" page — click it, agree to terms. No credit card needed for free tier.
+2. **Project name**: anything you want (e.g., `my-tools`, `personal-mcp`, `work-automation`)
+3. **Organization**: leave "No organization" if using a personal Gmail. If you're on Google Workspace (company email), it may auto-select your organization — that's fine.
+4. Click **Create**
+5. Wait 10 seconds — your project is ready
+
+**Your Project ID** is shown on the creation page and in the dashboard. It looks like `my-tools-438209` (name + random number). You'll use it in commands below.
+
+```
+Where to find your Project ID:
+  - Console top bar: click the project name dropdown → see ID column
+  - URL: console.cloud.google.com/home/dashboard?project=THIS_IS_YOUR_ID
+  - CLI: gcloud projects list
+```
+
+**Free tier:** Google Cloud has a generous free tier. Drive API, Sheets API, Docs API — free. BigQuery — first 1 TB/month of queries free. No billing account needed for basic API usage, but Google may ask you to enable billing for some APIs (like BigQuery). You won't be charged unless you exceed free tier limits.
+
+---
+
+## Step 1: Create Service Account
+
+A service account is a "robot user" — it has an email address and can be given access to files, APIs, and data. Unlike your personal account, it never expires and doesn't need to log in.
+
+**Option A: Via Console (no tools needed)**
+
+1. Open [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+2. Make sure your project is selected in the top dropdown
+3. Click **"+ Create Service Account"**
+   - Name: `gated-info` (or anything)
+   - Service account ID auto-fills (this becomes the email)
+   - Click **Create and Continue**
+   - **Grant this service account access to project** — skip for now (we'll add roles later per service)
+   - Click **Done**
+4. You'll see your new service account in the list with an email like:
+   `gated-info@your-project-id.iam.gserviceaccount.com`
+5. Click on it → go to **"Keys"** tab → **"Add Key"** → **"Create new key"** → select **JSON** → **Create**
+6. A `.json` file downloads — **this is your key**. Keep it safe.
+
+**Option B: Via gcloud CLI (if installed)**
+
 ```bash
-# Set your project
-PROJECT_ID="skillset-analytics-487510"  # or any GCP project
+# Replace with your project ID
+PROJECT_ID="your-project-id"
 
 # Create service account
 gcloud iam service-accounts create gated-info \
@@ -21,17 +65,9 @@ gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
   --iam-account=gated-info@${PROJECT_ID}.iam.gserviceaccount.com
 ```
 
-**Option B: Via Console (no gcloud needed)**
-1. Open [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
-2. Select your project (top dropdown)
-3. **"+ Create Service Account"**
-   - Name: `gated-info`
-   - Click **Create and Continue**
-   - Skip roles for now → **Done**
-4. Click on the created account → **Keys** tab → **Add Key** → **JSON**
-5. Key file downloads automatically
+**Don't have gcloud?** That's fine — Option A (Console) does everything. If you want gcloud: [Install guide](https://cloud.google.com/sdk/docs/install).
 
-### 2. Enable APIs
+## Step 2: Enable APIs
 
 Enable only the APIs you need. Each API is a toggle — turn on what you want.
 
@@ -58,7 +94,7 @@ gcloud services enable calendar-json.googleapis.com --project=$PROJECT_ID
 1. Open [APIs & Services → Library](https://console.cloud.google.com/apis/library)
 2. Search for each API → click → **Enable**
 
-### 3. Grant Access
+## Step 3: Grant Access
 
 #### Google Drive / Sheets / Docs
 Share folders or files with the SA email:
@@ -92,7 +128,7 @@ Share calendars with the SA email:
 1. Google Calendar → Settings → calendar → **Share with specific people**
 2. Add SA email → **See all event details**
 
-### 4. Connect to gated-info
+## Step 4: Connect to gated-info
 
 ```bash
 node --experimental-strip-types bin/gated-info.ts auth google --service-account ~/Downloads/gated-info-key.json
