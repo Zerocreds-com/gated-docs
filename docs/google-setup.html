@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gated-info — Google Setup Guide</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --code-bg: #1c2128;
+    --copy-bg: #21262d;
+    --copy-hover: #30363d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 0 20px 80px;
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 2rem; margin: 48px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+  h2 { font-size: 1.5rem; margin: 40px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; color: var(--text); }
+  h3 { font-size: 1.15rem; margin: 28px 0 12px; color: var(--text); }
+  h4 { font-size: 1rem; margin: 24px 0 8px; color: var(--text-dim); }
+  p { margin: 8px 0 12px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  strong { color: var(--text); }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* Code blocks with copy */
+  .code-block {
+    position: relative;
+    margin: 12px 0 16px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .code-block pre {
+    padding: 16px;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text);
+    margin: 0;
+    white-space: pre;
+  }
+  .code-block .copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--copy-bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-family: inherit;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+  }
+  .code-block:hover .copy-btn { opacity: 1; }
+  .code-block .copy-btn:hover { background: var(--copy-hover); color: var(--text); }
+  .code-block .copy-btn.copied { color: var(--green); }
+
+  /* Single-line command — always shows copy */
+  .cmd {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 8px 0 12px;
+    padding: 10px 70px 10px 16px;
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .cmd .copy-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--copy-bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    transition: background 0.15s;
+  }
+  .cmd .copy-btn:hover { background: var(--copy-hover); color: var(--text); }
+  .cmd .copy-btn.copied { color: var(--green); }
+
+  /* Ordered / unordered lists */
+  ol, ul { padding-left: 24px; margin: 8px 0 12px; }
+  li { margin: 4px 0; }
+  li ul, li ol { margin: 4px 0 4px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 0.9rem; }
+  th, td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+  th { background: var(--surface); color: var(--text-dim); font-weight: 600; }
+
+  /* Callout boxes */
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--surface);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0 16px;
+  }
+  .callout.tip { border-color: var(--green); }
+  .callout.warn { border-color: var(--orange); }
+  .callout.err { border-color: var(--red); }
+
+  /* Checklist */
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { padding: 6px 0 6px 28px; position: relative; }
+  .checklist li::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 10px;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 6px;
+  }
+  .badge.sa { background: #1f3a1f; color: var(--green); }
+  .badge.oauth { background: #3b2e12; color: var(--orange); }
+
+  /* Nav */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 24px 0;
+  }
+  .toc h3 { margin: 0 0 10px; font-size: 0.9rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { margin: 4px 0; font-size: 0.9rem; }
+
+  /* Comment in code */
+  .c { color: #8b949e; }
+  .k { color: #ff7b72; }
+  .v { color: #79c0ff; }
+
+  @media (max-width: 600px) {
+    body { padding: 0 12px 60px; }
+    h1 { font-size: 1.5rem; }
+    .cmd { font-size: 0.78rem; padding-right: 60px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>gated-info &mdash; Google Setup Guide</h1>
+<p style="color:var(--text-dim)">One service account &mdash; access to Drive, Sheets, Docs, BigQuery, Calendar.<br>Gmail needs OAuth2 (separate section below).</p>
+
+<div class="toc">
+  <h3>Steps</h3>
+  <ol>
+    <li><a href="#step-0">Get a Google Cloud Project</a></li>
+    <li><a href="#step-1">Create Service Account</a></li>
+    <li><a href="#step-2">Enable APIs</a></li>
+    <li><a href="#step-3">Grant Access</a></li>
+    <li><a href="#step-4">Connect to gated-info</a></li>
+  </ol>
+</div>
+
+<!-- ======== STEP 0 ======== -->
+<h2 id="step-0">Step 0: Get a Google Cloud Project</h2>
+
+<p>Everything in Google Cloud lives inside a "project". You need one. It's free.</p>
+
+<p><strong>Already have a project?</strong> Skip to <a href="#step-1">Step 1</a>. Your project ID is in the URL when you open the Console:</p>
+<div class="cmd">
+  <span>console.cloud.google.com/home/dashboard?project=<strong>YOUR_PROJECT_ID</strong></span>
+</div>
+
+<p><strong>Don't have a project?</strong></p>
+<ol>
+  <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank">Create a Project</a>
+    <ul><li>First time? You'll see "Get started for free" &mdash; click it, agree to terms. No credit card needed.</li></ul>
+  </li>
+  <li><strong>Project name</strong>: anything (e.g. <code>my-tools</code>, <code>personal-mcp</code>)</li>
+  <li><strong>Organization</strong>: leave "No organization" for personal Gmail. Workspace auto-selects &mdash; that's fine.</li>
+  <li>Click <strong>Create</strong>. Wait 10 seconds.</li>
+</ol>
+
+<p>Your <strong>Project ID</strong> looks like <code>my-tools-438209</code> (name + random number). You'll paste it into commands below.</p>
+
+<div class="callout tip">
+  <strong>Where to find Project ID:</strong> Console top bar &rarr; click project dropdown &rarr; see "ID" column. Or in the URL after <code>?project=</code>.
+</div>
+
+<div class="callout">
+  <strong>Free tier:</strong> Drive, Sheets, Docs APIs &mdash; free. BigQuery &mdash; 1 TB/month queries free. No billing needed for basic usage.
+</div>
+
+<hr>
+
+<!-- ======== STEP 1 ======== -->
+<h2 id="step-1">Step 1: Create Service Account</h2>
+
+<p>A service account is a "robot user" &mdash; it has an email, can access files and APIs. Never expires, no re-login.</p>
+
+<h4>Option A: Via Console (no tools needed)</h4>
+<ol>
+  <li>Open <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank">Service Accounts</a></li>
+  <li>Make sure your project is selected in the top dropdown</li>
+  <li>Click <strong>"+ Create Service Account"</strong>
+    <ul>
+      <li>Name: <code>gated-info</code> (or anything)</li>
+      <li>ID auto-fills (becomes the email)</li>
+      <li>Click <strong>Create and Continue</strong></li>
+      <li>"Grant access to project" &mdash; skip for now, click <strong>Done</strong></li>
+    </ul>
+  </li>
+  <li>You'll see the SA with email like: <code>gated-info@your-project-id.iam.gserviceaccount.com</code></li>
+  <li>Click on it &rarr; <strong>Keys</strong> tab &rarr; <strong>Add Key</strong> &rarr; <strong>Create new key</strong> &rarr; <strong>JSON</strong> &rarr; <strong>Create</strong></li>
+  <li>A <code>.json</code> file downloads &mdash; <strong>this is your key</strong>. Keep it safe.</li>
+</ol>
+
+<h4>Option B: Via gcloud CLI</h4>
+
+<div class="code-block"><pre><span class="c"># Replace with your project ID</span>
+PROJECT_ID=<span class="v">"your-project-id"</span>
+
+<span class="c"># Create service account</span>
+gcloud iam service-accounts create gated-info \
+  --display-name=<span class="v">"gated-info MCP"</span> \
+  --project=$PROJECT_ID
+
+<span class="c"># Download key</span>
+gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
+  --iam-account=gated-info@${PROJECT_ID}.iam.gserviceaccount.com</pre><button class="copy-btn" onclick="copyBlock(this)">Copy</button></div>
+
+<p style="color:var(--text-dim)">Don't have gcloud? Option A does everything. If you want it: <a href="https://cloud.google.com/sdk/docs/install" target="_blank">Install guide</a>.</p>
+
+<hr>
+
+<!-- ======== STEP 2 ======== -->
+<h2 id="step-2">Step 2: Enable APIs</h2>
+
+<p>Enable only what you need. Each is a toggle.</p>
+
+<h4>Option A: Via CLI</h4>
+<p>Set your project ID first:</p>
+<div class="cmd"><span>PROJECT_ID="your-project-id"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<p><strong>Core (Drive / Sheets / Docs):</strong></p>
+<div class="cmd"><span>gcloud services enable drive.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable sheets.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable docs.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<p><strong>BigQuery:</strong></p>
+<div class="cmd"><span>gcloud services enable bigquery.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<p><strong>Gmail</strong> (requires OAuth &mdash; see <a href="#gmail">Gmail section</a>):</p>
+<div class="cmd"><span>gcloud services enable gmail.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<p><strong>Calendar:</strong></p>
+<div class="cmd"><span>gcloud services enable calendar-json.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<h4>Option B: Via Console</h4>
+<ol>
+  <li>Open <a href="https://console.cloud.google.com/apis/library" target="_blank">APIs &amp; Services &rarr; Library</a></li>
+  <li>Search for each API &rarr; click &rarr; <strong>Enable</strong></li>
+</ol>
+
+<hr>
+
+<!-- ======== STEP 3 ======== -->
+<h2 id="step-3">Step 3: Grant Access</h2>
+
+<h3>Google Drive / Sheets / Docs</h3>
+<p>Share folders or files with the SA email:</p>
+<ol>
+  <li>In Google Drive, right-click folder &rarr; <strong>Share</strong></li>
+  <li>Paste: <code>gated-info@YOUR_PROJECT.iam.gserviceaccount.com</code></li>
+  <li>Set to <strong>Viewer</strong> (read-only)</li>
+</ol>
+<div class="callout tip"><strong>Pro tip:</strong> Share ONE top-level folder &rarr; everything inside becomes accessible.</div>
+
+<h3>BigQuery</h3>
+<p>Grant the SA access to query data:</p>
+<div class="cmd"><span>gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:gated-info@${PROJECT_ID}.iam.gserviceaccount.com" --role="roles/bigquery.user"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:gated-info@${PROJECT_ID}.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<p style="color:var(--text-dim)">Or via Console: <a href="https://console.cloud.google.com/iam-admin/iam" target="_blank">IAM</a> &rarr; find the SA &rarr; Edit &rarr; Add roles.</p>
+
+<h3 id="gmail">Gmail <span class="badge oauth">OAuth2</span></h3>
+<p><strong>SA cannot access Gmail.</strong> Gmail requires user consent (OAuth2).</p>
+<ol>
+  <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Credentials</a></li>
+  <li><strong>"+ Create Credentials"</strong> &rarr; <strong>OAuth Client ID</strong> &rarr; <strong>Desktop app</strong></li>
+  <li>Download <code>client_secret_xxx.json</code></li>
+  <li>Set <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank">OAuth consent screen</a> to <strong>Production</strong> (avoids 7-day token expiry)</li>
+</ol>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth gmail --client-secret ~/Downloads/client_secret.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<p style="color:var(--text-dim)">Opens browser &rarr; log in &rarr; authorize &rarr; refresh token saved to Keychain.</p>
+
+<h3>Google Calendar</h3>
+<ol>
+  <li>Google Calendar &rarr; Settings &rarr; calendar &rarr; <strong>Share with specific people</strong></li>
+  <li>Add SA email &rarr; <strong>See all event details</strong></li>
+</ol>
+
+<hr>
+
+<!-- ======== STEP 4 ======== -->
+<h2 id="step-4">Step 4: Connect to gated-info</h2>
+
+<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth google --service-account ~/Downloads/gated-info-key.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts scan</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<div class="callout tip"><strong>Done.</strong> You can delete the key file &mdash; it's now stored in macOS Keychain.</div>
+
+<hr>
+
+<!-- ======== SERVICES TABLE ======== -->
+<h2>Available Google Services</h2>
+
+<table>
+  <tr>
+    <th>Service</th>
+    <th>What it does</th>
+    <th>Auth</th>
+    <th>API to enable</th>
+  </tr>
+  <tr>
+    <td><strong>Drive</strong></td>
+    <td>Search files, list folders, read documents</td>
+    <td><span class="badge sa">SA</span></td>
+    <td><code>drive.googleapis.com</code></td>
+  </tr>
+  <tr>
+    <td><strong>Sheets</strong></td>
+    <td>Read cell values, all tabs, computed values</td>
+    <td><span class="badge sa">SA</span></td>
+    <td><code>sheets.googleapis.com</code></td>
+  </tr>
+  <tr>
+    <td><strong>Docs</strong></td>
+    <td>Full text export of documents</td>
+    <td><span class="badge sa">SA</span></td>
+    <td><code>docs.googleapis.com</code></td>
+  </tr>
+  <tr>
+    <td><strong>BigQuery</strong></td>
+    <td>Run SQL, list datasets/tables/jobs, schema</td>
+    <td><span class="badge sa">SA</span></td>
+    <td><code>bigquery.googleapis.com</code></td>
+  </tr>
+  <tr>
+    <td><strong>Gmail</strong></td>
+    <td>Search emails, read threads, attachments</td>
+    <td><span class="badge oauth">OAuth2</span></td>
+    <td><code>gmail.googleapis.com</code></td>
+  </tr>
+  <tr>
+    <td><strong>Calendar</strong></td>
+    <td>List events, search, read details</td>
+    <td><span class="badge sa">SA</span></td>
+    <td><code>calendar-json.googleapis.com</code></td>
+  </tr>
+</table>
+
+<hr>
+
+<!-- ======== IAM ROLES ======== -->
+<h2>IAM Roles Reference</h2>
+<p>Minimal roles for each service:</p>
+<table>
+  <tr><th>Service</th><th>Role</th><th>What it allows</th></tr>
+  <tr><td>Drive / Sheets / Docs</td><td><em>(shared via email)</em></td><td>Read files shared with SA</td></tr>
+  <tr><td>BigQuery</td><td><code>roles/bigquery.user</code></td><td>Run queries, list jobs</td></tr>
+  <tr><td>BigQuery</td><td><code>roles/bigquery.dataViewer</code></td><td>Read table data and schemas</td></tr>
+  <tr><td>BigQuery</td><td><code>roles/bigquery.jobUser</code></td><td>Create and manage own query jobs</td></tr>
+</table>
+
+<hr>
+
+<!-- ======== CHECKLIST ======== -->
+<h2>Checklist</h2>
+<p>Pick what you need:</p>
+<ul class="checklist">
+  <li><strong>Google Drive</strong> &mdash; enable API, share folder with SA</li>
+  <li><strong>Google Sheets</strong> &mdash; enable API (Drive share covers access)</li>
+  <li><strong>Google Docs</strong> &mdash; enable API (Drive share covers access)</li>
+  <li><strong>BigQuery</strong> &mdash; enable API, grant <code>bigquery.user</code> + <code>bigquery.dataViewer</code> roles</li>
+  <li><strong>Gmail</strong> &mdash; enable API, create OAuth Client ID, run <code>auth gmail</code></li>
+  <li><strong>Google Calendar</strong> &mdash; enable API, share calendar with SA</li>
+</ul>
+
+<p>After enabling, run:</p>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts scan</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<hr>
+
+<!-- ======== TROUBLESHOOTING ======== -->
+<h2>Troubleshooting</h2>
+
+<div class="callout err">
+  <strong>"403 Forbidden"</strong> &mdash; API not enabled, or SA doesn't have access.<br>
+  1. Is the API enabled? &rarr; <a href="https://console.cloud.google.com/apis/enabled" target="_blank">APIs &amp; Services</a><br>
+  2. Is the file/folder shared with SA email?<br>
+  3. For BigQuery: does SA have IAM roles?
+</div>
+
+<div class="callout err">
+  <strong>"401 Unauthorized"</strong> &mdash; Credential issue. Re-run:<br>
+  <code>gated-info auth google --service-account key.json</code>
+</div>
+
+<div class="callout warn">
+  <strong>"Token expired" for Gmail</strong> &mdash; OAuth consent screen is in "Testing" mode.<br>
+  <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank">OAuth consent screen</a> &rarr; <strong>Publish App</strong>
+</div>
+
+<div class="callout warn">
+  <strong>BigQuery "Access Denied"</strong> &mdash; SA needs roles at project level. See <a href="#step-3">Step 3: BigQuery</a>.
+</div>
+
+<hr>
+<p style="color:var(--text-dim);font-size:0.85rem;text-align:center;margin-top:32px">
+  gated-info &mdash; MCP server for auth-gated sources. Credentials in macOS Keychain, not on disk.
+</p>
+
+<script>
+function copyCmd(btn) {
+  const text = btn.parentElement.querySelector('span').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+function copyBlock(btn) {
+  const text = btn.parentElement.querySelector('pre').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+</script>
+</body>
+</html>

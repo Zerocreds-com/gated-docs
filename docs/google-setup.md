@@ -73,7 +73,7 @@ Enable only the APIs you need. Each API is a toggle — turn on what you want.
 
 **Option A: Via CLI**
 ```bash
-PROJECT_ID="skillset-analytics-487510"
+PROJECT_ID="your-project-id"
 
 # Core (most people need these)
 gcloud services enable drive.googleapis.com --project=$PROJECT_ID
