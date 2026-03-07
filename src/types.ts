@@ -10,6 +10,7 @@ export interface SourceConfig {
 export interface Config {
   sources: Partial<Record<SourceType, SourceConfig>>;
   scan_interval_hours: number;
+  bigquery_project?: string; // override project for BQ queries (when SA is in different project)
 }
 
 // ── Structure (scan output) ──────────────────────────────

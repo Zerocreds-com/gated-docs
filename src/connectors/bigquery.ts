@@ -1,6 +1,7 @@
 /**
  * BigQuery connector — run queries, list datasets/tables/jobs.
- * Uses the same Google service account as Drive/Sheets.
+ * Auth priority: SA credentials → ADC (application default credentials).
+ * ADC is useful when org policy blocks SA key creation.
  */
 import { google, type bigquery_v2 } from 'googleapis';
 import { getServiceAccountCredentials } from '../keychain.ts';
@@ -9,14 +10,23 @@ import type { SearchResult, StructureDoc } from '../types.ts';
 
 function getAuth() {
   const config = loadConfig();
-  const account = config.sources.google?.account;
-  if (!account) throw new Error('Google not configured. Run: gated-info auth google --service-account <key.json>');
 
-  const credentials = getServiceAccountCredentials(account);
-  if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}`);
+  // If bigquery_project is set to a different project, use ADC (SA likely can't access it)
+  if (!config.bigquery_project) {
+    const account = config.sources.google?.account;
+    if (account) {
+      const credentials = getServiceAccountCredentials(account);
+      if (credentials) {
+        return new google.auth.GoogleAuth({
+          credentials: credentials as any,
+          scopes: ['https://www.googleapis.com/auth/bigquery.readonly'],
+        });
+      }
+    }
+  }
 
+  // ADC (~/.config/gcloud/application_default_credentials.json)
   return new google.auth.GoogleAuth({
-    credentials: credentials as any,
     scopes: ['https://www.googleapis.com/auth/bigquery.readonly'],
   });
 }
@@ -27,10 +37,24 @@ function getBQ(): bigquery_v2.Bigquery {
 
 function getProjectId(): string {
   const config = loadConfig();
+
+  // Config override (for cross-project queries)
+  if (config.bigquery_project) return config.bigquery_project;
+
+  // SA project
   const account = config.sources.google?.account;
-  if (!account) throw new Error('Google not configured');
-  const credentials = getServiceAccountCredentials(account);
-  return (credentials as any)?.project_id || '';
+  if (account) {
+    const credentials = getServiceAccountCredentials(account);
+    if ((credentials as any)?.project_id) return (credentials as any).project_id;
+  }
+
+  // ADC — try gcloud default project
+  try {
+    const { execSync } = require('node:child_process');
+    return execSync('gcloud config get-value project 2>/dev/null', { encoding: 'utf-8' }).trim();
+  } catch {}
+
+  return '';
 }
 
 // ── Scan: list datasets and tables ──────────────────────
