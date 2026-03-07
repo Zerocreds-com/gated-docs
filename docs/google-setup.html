@@ -263,17 +263,14 @@
 
 <h4>Option B: Via gcloud CLI</h4>
 
-<div class="code-block"><pre><span class="c"># Replace with your project ID</span>
-PROJECT_ID=<span class="v">"your-project-id"</span>
-
-<span class="c"># Create service account</span>
+<div class="code-block"><pre><span class="c"># Create service account</span>
 gcloud iam service-accounts create gated-info \
   --display-name=<span class="v">"gated-info MCP"</span> \
-  --project=$PROJECT_ID
+  --project=YOUR_PROJECT_ID
 
 <span class="c"># Download key</span>
 gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
-  --iam-account=gated-info@${PROJECT_ID}.iam.gserviceaccount.com</pre><button class="copy-btn" onclick="copyBlock(this)">Copy</button></div>
+  --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com</pre><button class="copy-btn" onclick="copyBlock(this)">Copy</button></div>
 
 <p style="color:var(--text-dim)">Don't have gcloud? Option A does everything. If you want it: <a href="https://cloud.google.com/sdk/docs/install" target="_blank">Install guide</a>.</p>
 
@@ -285,22 +282,20 @@ gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
 <p>Enable only what you need. Each is a toggle.</p>
 
 <h4>Option A: Via CLI</h4>
-<p>Set your project ID first:</p>
-<div class="cmd"><span>PROJECT_ID="your-project-id"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p><strong>Core (Drive / Sheets / Docs):</strong></p>
-<div class="cmd"><span>gcloud services enable drive.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
-<div class="cmd"><span>gcloud services enable sheets.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
-<div class="cmd"><span>gcloud services enable docs.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable drive.googleapis.com --project=YOUR_PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable sheets.googleapis.com --project=YOUR_PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable docs.googleapis.com --project=YOUR_PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p><strong>BigQuery:</strong></p>
-<div class="cmd"><span>gcloud services enable bigquery.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable bigquery.googleapis.com --project=YOUR_PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p><strong>Gmail</strong> (requires OAuth &mdash; see <a href="#gmail">Gmail section</a>):</p>
-<div class="cmd"><span>gcloud services enable gmail.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable gmail.googleapis.com --project=YOUR_PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p><strong>Calendar:</strong></p>
-<div class="cmd"><span>gcloud services enable calendar-json.googleapis.com --project=$PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud services enable calendar-json.googleapis.com --project=YOUR_PROJECT_ID</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <h4>Option B: Via Console</h4>
 <ol>
@@ -324,8 +319,8 @@ gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
 
 <h3>BigQuery</h3>
 <p>Grant the SA access to query data:</p>
-<div class="cmd"><span>gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:gated-info@${PROJECT_ID}.iam.gserviceaccount.com" --role="roles/bigquery.user"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
-<div class="cmd"><span>gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:gated-info@${PROJECT_ID}.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p style="color:var(--text-dim)">Or via Console: <a href="https://console.cloud.google.com/iam-admin/iam" target="_blank">IAM</a> &rarr; find the SA &rarr; Edit &rarr; Add roles.</p>
 

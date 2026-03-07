@@ -52,17 +52,14 @@ A service account is a "robot user" — it has an email address and can be given
 **Option B: Via gcloud CLI (if installed)**
 
 ```bash
-# Replace with your project ID
-PROJECT_ID="your-project-id"
-
 # Create service account
 gcloud iam service-accounts create gated-info \
   --display-name="gated-info MCP" \
-  --project=$PROJECT_ID
+  --project=YOUR_PROJECT_ID
 
 # Download key
 gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
-  --iam-account=gated-info@${PROJECT_ID}.iam.gserviceaccount.com
+  --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
 **Don't have gcloud?** That's fine — Option A (Console) does everything. If you want gcloud: [Install guide](https://cloud.google.com/sdk/docs/install).
@@ -73,21 +70,19 @@ Enable only the APIs you need. Each API is a toggle — turn on what you want.
 
 **Option A: Via CLI**
 ```bash
-PROJECT_ID="your-project-id"
-
 # Core (most people need these)
-gcloud services enable drive.googleapis.com --project=$PROJECT_ID
-gcloud services enable sheets.googleapis.com --project=$PROJECT_ID
-gcloud services enable docs.googleapis.com --project=$PROJECT_ID
+gcloud services enable drive.googleapis.com --project=YOUR_PROJECT_ID
+gcloud services enable sheets.googleapis.com --project=YOUR_PROJECT_ID
+gcloud services enable docs.googleapis.com --project=YOUR_PROJECT_ID
 
 # BigQuery
-gcloud services enable bigquery.googleapis.com --project=$PROJECT_ID
+gcloud services enable bigquery.googleapis.com --project=YOUR_PROJECT_ID
 
 # Gmail (requires OAuth — see Gmail section below)
-gcloud services enable gmail.googleapis.com --project=$PROJECT_ID
+gcloud services enable gmail.googleapis.com --project=YOUR_PROJECT_ID
 
 # Calendar
-gcloud services enable calendar-json.googleapis.com --project=$PROJECT_ID
+gcloud services enable calendar-json.googleapis.com --project=YOUR_PROJECT_ID
 ```
 
 **Option B: Via Console**
@@ -108,13 +103,13 @@ Share folders or files with the SA email:
 Grant the SA access to query data:
 ```bash
 # Viewer — can run queries and see results
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:gated-info@${PROJECT_ID}.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/bigquery.user"
 
 # Data viewer — can see dataset contents
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:gated-info@${PROJECT_ID}.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/bigquery.dataViewer"
 ```
 
@@ -244,15 +239,12 @@ Minimal roles for each service:
 
 Grant roles:
 ```bash
-SA_EMAIL="gated-info@${PROJECT_ID}.iam.gserviceaccount.com"
-
-# BigQuery
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/bigquery.user"
 
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/bigquery.dataViewer"
 ```
 
