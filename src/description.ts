@@ -69,7 +69,48 @@ export function generateDescription(
     }
   }
 
-  parts.push('Use when you need data from Google Sheets, Docs, Notion pages, Slack or Telegram messages.');
+  // BigQuery schemas — so Claude can write SQL directly
+  const bqTables = docs.filter(d => d.parent?.startsWith('BigQuery/') && (d.type === 'table' || d.type === 'view'));
+  if (bqTables.length > 0) {
+    parts.push('');
+    parts.push('BigQuery tables (use bigquery_query tool for SQL):');
+
+    // Group tables with identical schemas (e.g. GA4 events_YYYYMMDD)
+    const byDataset = new Map<string, typeof bqTables>();
+    for (const t of bqTables) {
+      const dataset = t.parent!.replace('BigQuery/', '');
+      if (!byDataset.has(dataset)) byDataset.set(dataset, []);
+      byDataset.get(dataset)!.push(t);
+    }
+
+    for (const [dataset, tables] of byDataset) {
+      // Detect sharded tables (same schema, names differ by date suffix)
+      const schemaGroups = new Map<string, typeof bqTables>();
+      for (const t of tables) {
+        // Extract schema part (columns list) from snippet
+        const cols = t.snippet?.split(' | ')[0] || '';
+        if (!schemaGroups.has(cols)) schemaGroups.set(cols, []);
+        schemaGroups.get(cols)!.push(t);
+      }
+
+      for (const [_cols, group] of schemaGroups) {
+        if (group.length > 3) {
+          // Sharded — show as wildcard with date range
+          const names = group.map(t => t.name).sort();
+          const first = names[0];
+          const last = names[names.length - 1];
+          parts.push(`  ${dataset}.${first.replace(/\d{8}$/, '*')} (${group.length} shards: ${first}..${last}): ${group[0].snippet || 'no schema'}`);
+        } else {
+          for (const t of group) {
+            parts.push(`  ${dataset}.${t.name}: ${t.snippet || 'no schema'}`);
+          }
+        }
+      }
+    }
+  }
+
+  parts.push('');
+  parts.push('Use search for text queries. Use bigquery_query for SQL on BigQuery tables.');
   parts.push('Specify source parameter to narrow search to google/notion/slack/telegram.');
 
   return parts.join('\n');

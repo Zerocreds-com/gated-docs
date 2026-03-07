@@ -74,6 +74,47 @@ export async function scanGoogleDrive(): Promise<StructureDoc[]> {
   // Resolve parent folder names for context
   await resolveParentFolders(drive, docs);
 
+  // Enrich spreadsheets with sheet names + headers
+  const sheets = getSheets();
+  for (const doc of docs) {
+    if (doc.type !== 'spreadsheet') continue;
+    try {
+      // Get sheet names first
+      const sheetsMeta = await sheets.spreadsheets.get({
+        spreadsheetId: doc.id,
+        fields: 'sheets.properties.title',
+      });
+      const sheetNames = (sheetsMeta.data.sheets || [])
+        .map(s => s.properties?.title)
+        .filter(Boolean) as string[];
+
+      const sheetInfos: string[] = [];
+      for (const sheetName of sheetNames.slice(0, 10)) {
+        try {
+          // Fetch first 5 rows to find headers (not always row 1)
+          const res = await sheets.spreadsheets.values.get({
+            spreadsheetId: doc.id,
+            range: `'${sheetName}'!A1:Z5`,
+          });
+          const rows = res.data.values || [];
+          // Header row = row with most non-empty cells in first 5
+          let bestRow: string[] = [];
+          let bestCount = 0;
+          for (const row of rows) {
+            const filled = row.filter((c: string) => c && c.trim()).length;
+            if (filled > bestCount) { bestCount = filled; bestRow = row; }
+          }
+          const headers = bestRow.filter((c: string) => c && c.trim()).join(', ');
+          sheetInfos.push(headers ? `${sheetName}[${headers}]` : sheetName);
+        } catch {
+          sheetInfos.push(sheetName);
+        }
+      }
+
+      doc.snippet = sheetInfos.join(' | ');
+    } catch {} // skip unreadable spreadsheets
+  }
+
   return docs;
 }
 

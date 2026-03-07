@@ -57,7 +57,7 @@ function getProjectId(): string {
   return '';
 }
 
-// ── Scan: list datasets and tables ──────────────────────
+// ── Scan: list datasets and tables with schemas ─────────
 
 export async function scanBigQuery(): Promise<StructureDoc[]> {
   const bq = getBQ();
@@ -78,30 +78,80 @@ export async function scanBigQuery(): Promise<StructureDoc[]> {
       parent: 'BigQuery',
     });
 
-    // List tables in dataset
+    // List tables + fetch schema for each
     try {
       const tables = await bq.tables.list({ projectId, datasetId, maxResults: 50 });
       for (const t of tables.data.tables || []) {
         const tableId = t.tableReference?.tableId;
         if (!tableId) continue;
 
-        const rowCount = t.numRows ? `${Number(t.numRows).toLocaleString()} rows` : '';
-        const sizeBytes = t.numBytes ? formatBytes(Number(t.numBytes)) : '';
-        const info = [rowCount, sizeBytes].filter(Boolean).join(', ');
+        const rowCount = t.numRows ? Number(t.numRows) : 0;
+        const rowStr = rowCount ? `${rowCount.toLocaleString()} rows` : '';
 
-        docs.push({
-          id: `${projectId}.${datasetId}.${tableId}`,
-          name: tableId,
-          type: t.type === 'VIEW' ? 'view' : 'table',
-          source: 'google',
-          parent: `BigQuery/${datasetId}`,
-          snippet: info || undefined,
-        });
+        // Freshness from last modified time
+        const modifiedMs = t.creationTime ? Number(t.creationTime) : 0;
+        let freshness = '';
+        let modifiedAt: string | undefined;
+        try {
+          // tables.list gives creationTime, get gives lastModifiedTime
+          const detail = await bq.tables.get({ projectId, datasetId, tableId });
+          const lastMod = detail.data.lastModifiedTime ? Number(detail.data.lastModifiedTime) : 0;
+          if (lastMod) {
+            modifiedAt = new Date(lastMod).toISOString();
+            freshness = formatAge(lastMod);
+          }
+
+          // Schema — compact column list
+          const fields = detail.data.schema?.fields || [];
+          const cols = fields.map(f => `${f.name}(${shortType(f.type || '?')})`).join(', ');
+
+          const parts = [cols ? `columns: ${cols}` : '', rowStr, freshness].filter(Boolean);
+
+          docs.push({
+            id: `${projectId}.${datasetId}.${tableId}`,
+            name: tableId,
+            type: t.type === 'VIEW' ? 'view' : 'table',
+            source: 'google',
+            parent: `BigQuery/${datasetId}`,
+            snippet: parts.join(' | ') || undefined,
+            modified_at: modifiedAt,
+          });
+        } catch {
+          // Fallback without schema
+          docs.push({
+            id: `${projectId}.${datasetId}.${tableId}`,
+            name: tableId,
+            type: t.type === 'VIEW' ? 'view' : 'table',
+            source: 'google',
+            parent: `BigQuery/${datasetId}`,
+            snippet: rowStr || undefined,
+          });
+        }
       }
     } catch {} // skip datasets we can't list
   }
 
   return docs;
+}
+
+function shortType(t: string): string {
+  const map: Record<string, string> = {
+    STRING: 'STR', INTEGER: 'INT', INT64: 'INT', FLOAT: 'FLOAT', FLOAT64: 'FLOAT',
+    BOOLEAN: 'BOOL', BOOL: 'BOOL', TIMESTAMP: 'TS', DATE: 'DATE', DATETIME: 'DT',
+    RECORD: 'REC', BYTES: 'BYTES', NUMERIC: 'NUM', BIGNUMERIC: 'BIGNUM', JSON: 'JSON',
+  };
+  return map[t] || t;
+}
+
+function formatAge(timestampMs: number): string {
+  const age = Date.now() - timestampMs;
+  const mins = Math.floor(age / 60000);
+  if (mins < 60) return `updated ${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `updated ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `updated ${days}d ago`;
+  return `updated ${Math.floor(days / 30)}mo ago`;
 }
 
 // ── Run a query ─────────────────────────────────────────
