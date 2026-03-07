@@ -185,6 +185,65 @@ server.tool(
   },
 );
 
+// ── bigquery_query ──────────────────────────────────────
+
+server.tool(
+  'bigquery_query',
+  'Run a BigQuery SQL query and return results. Use standard SQL syntax. Results are tab-separated.',
+  {
+    sql: z.string().describe('SQL query to execute (standard SQL)'),
+    max_rows: z.number().optional().describe('Max rows to return (default: 100)'),
+  },
+  async ({ sql, max_rows }) => {
+    try {
+      const { runQuery } = await import('../connectors/bigquery.ts');
+      const result = await runQuery(sql, max_rows || 100);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `BigQuery error: ${e.message}` }] };
+    }
+  },
+);
+
+// ── bigquery_explore ────────────────────────────────────
+
+server.tool(
+  'bigquery_explore',
+  'Explore BigQuery: list datasets, tables, table schema, or recent jobs. Use to discover what data is available.',
+  {
+    action: z.enum(['datasets', 'tables', 'schema', 'jobs'])
+      .describe('What to explore'),
+    target: z.string().optional()
+      .describe('Dataset name (for "tables"), full table ID "project.dataset.table" (for "schema"), or job state "RUNNING"/"DONE" (for "jobs")'),
+  },
+  async ({ action, target }) => {
+    try {
+      if (action === 'datasets') {
+        const { listDatasets } = await import('../connectors/bigquery.ts');
+        const result = await listDatasets();
+        return { content: [{ type: 'text' as const, text: result }] };
+      } else if (action === 'tables') {
+        if (!target) return { content: [{ type: 'text' as const, text: 'Specify dataset name in target parameter' }] };
+        const { listTables } = await import('../connectors/bigquery.ts');
+        const result = await listTables(target);
+        return { content: [{ type: 'text' as const, text: result }] };
+      } else if (action === 'schema') {
+        if (!target) return { content: [{ type: 'text' as const, text: 'Specify table ID as project.dataset.table in target parameter' }] };
+        const { getTableSchema } = await import('../connectors/bigquery.ts');
+        const result = await getTableSchema(target);
+        return { content: [{ type: 'text' as const, text: result }] };
+      } else if (action === 'jobs') {
+        const { listJobs } = await import('../connectors/bigquery.ts');
+        const result = await listJobs(target);
+        return { content: [{ type: 'text' as const, text: result }] };
+      }
+      return { content: [{ type: 'text' as const, text: 'Unknown action' }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `BigQuery error: ${e.message}` }] };
+    }
+  },
+);
+
 // ── Helpers ──────────────────────────────────────────────
 
 function getEnabledSources(): SourceType[] {

@@ -59,6 +59,24 @@ export async function scan(): Promise<Structure> {
     }
   }
 
+  // BigQuery (uses same Google SA credentials)
+  if (config.sources.google?.enabled && config.sources.google.account) {
+    if (hasCredential('google', config.sources.google.account)) {
+      try {
+        const { scanBigQuery } = await import('./connectors/bigquery.ts');
+        const docs = await scanBigQuery();
+        allDocs.push(...docs);
+        process.stderr.write(`[scan] BigQuery: ${docs.length} datasets/tables\n`);
+      } catch (e: any) {
+        // BigQuery might not be enabled — that's fine
+        if (!e.message?.includes('403') && !e.message?.includes('bigquery')) {
+          errors.push(`BigQuery: ${e.message}`);
+        }
+        process.stderr.write(`[scan] BigQuery: skipped (${e.message?.slice(0, 80)})\n`);
+      }
+    }
+  }
+
   // Telegram
   if (config.sources.telegram?.enabled) {
     if (hasCredential('telegram', 'default')) {
