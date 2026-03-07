@@ -263,13 +263,10 @@
 
 <h4>Option B: Via gcloud CLI</h4>
 
-<div class="code-block"><pre><span class="c"># Create service account</span>
-gcloud iam service-accounts create gated-info \
-  --display-name=<span class="v">"gated-info MCP"</span> \
- 
-<span class="c"># Download key</span>
-gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
-  --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com</pre><button class="copy-btn" onclick="copyBlock(this)">Copy</button></div>
+<div class="cmd"><span>gcloud iam service-accounts create gated-info --display-name="gated-info MCP"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+
+<p>Download the key (replace <code>YOUR_PROJECT_ID</code>):</p>
+<div class="cmd"><span>gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p style="color:var(--text-dim)">Don't have gcloud? Option A does everything. If you want it: <a href="https://cloud.google.com/sdk/docs/install" target="_blank">Install guide</a>.</p>
 

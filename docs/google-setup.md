@@ -52,13 +52,12 @@ A service account is a "robot user" — it has an email address and can be given
 **Option B: Via gcloud CLI (if installed)**
 
 ```bash
-# Create service account
-gcloud iam service-accounts create gated-info \
-  --display-name="gated-info MCP" \
- 
-# Download key
-gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json \
-  --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com
+gcloud iam service-accounts create gated-info --display-name="gated-info MCP"
+```
+
+Download the key (replace `YOUR_PROJECT_ID`):
+```bash
+gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
 **Don't have gcloud?** That's fine — Option A (Console) does everything. If you want gcloud: [Install guide](https://cloud.google.com/sdk/docs/install).
@@ -95,15 +94,9 @@ Share folders or files with the SA email:
 #### BigQuery
 Grant the SA access to query data:
 ```bash
-# Viewer — can run queries and see results
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
 
-# Data viewer — can see dataset contents
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.dataViewer"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
 ```
 
 Or via Console: [IAM](https://console.cloud.google.com/iam-admin/iam) → find the SA → Edit → Add roles.
@@ -232,13 +225,9 @@ Minimal roles for each service:
 
 Grant roles:
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
 
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.dataViewer"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
 ```
 
 ---
@@ -278,7 +267,5 @@ node --experimental-strip-types bin/gated-info.ts auth google --service-account 
 
 **BigQuery "Access Denied"** → SA needs roles at project level:
 ```bash
-gcloud projects add-iam-policy-binding PROJECT_ID \
-  --member="serviceAccount:SA_EMAIL" \
-  --role="roles/bigquery.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
 ```
