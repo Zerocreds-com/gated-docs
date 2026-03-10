@@ -10,22 +10,34 @@ import type { SearchResult, StructureDoc } from '../types.ts';
 
 function getAuth() {
   const config = loadConfig();
+  const account = config.sources.google?.account;
+  const impersonate = config.google_impersonate;
 
-  // If bigquery_project is set to a different project, use ADC (SA likely can't access it)
-  if (!config.bigquery_project) {
-    const account = config.sources.google?.account;
-    if (account) {
-      const credentials = getServiceAccountCredentials(account);
-      if (credentials) {
-        return new google.auth.GoogleAuth({
-          credentials: credentials as any,
-          scopes: ['https://www.googleapis.com/auth/bigquery.readonly'],
-        });
-      }
+  // SA + Domain-Wide Delegation — impersonate user for cross-project access
+  if (account && impersonate) {
+    const credentials = getServiceAccountCredentials(account);
+    if (credentials) {
+      return new google.auth.JWT({
+        email: (credentials as any).client_email,
+        key: (credentials as any).private_key,
+        scopes: ['https://www.googleapis.com/auth/bigquery.readonly'],
+        subject: impersonate,
+      });
     }
   }
 
-  // ADC (~/.config/gcloud/application_default_credentials.json)
+  // SA without impersonation (same project)
+  if (!config.bigquery_project && account) {
+    const credentials = getServiceAccountCredentials(account);
+    if (credentials) {
+      return new google.auth.GoogleAuth({
+        credentials: credentials as any,
+        scopes: ['https://www.googleapis.com/auth/bigquery.readonly'],
+      });
+    }
+  }
+
+  // ADC fallback (~/.config/gcloud/application_default_credentials.json)
   return new google.auth.GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/bigquery.readonly'],
   });

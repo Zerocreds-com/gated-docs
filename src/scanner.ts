@@ -92,9 +92,24 @@ export async function scan(): Promise<Structure> {
     }
   }
 
+  // Cloudflare
+  if (config.sources.cloudflare?.enabled) {
+    if (hasCredential('cloudflare', 'default')) {
+      try {
+        const { scanCloudflare } = await import('./connectors/cloudflare.ts');
+        const docs = await scanCloudflare();
+        allDocs.push(...docs);
+        process.stderr.write(`[scan] Cloudflare: ${docs.length} resources\n`);
+      } catch (e: any) {
+        errors.push(`Cloudflare: ${e.message}`);
+        process.stderr.write(`[scan] Cloudflare error: ${e.message}\n`);
+      }
+    }
+  }
+
   // Build stats
   const stats: Structure['stats'] = {} as any;
-  for (const source of ['google', 'notion', 'slack', 'telegram'] as SourceType[]) {
+  for (const source of ['google', 'notion', 'slack', 'telegram', 'cloudflare'] as SourceType[]) {
     const sourceDocs = allDocs.filter(d => d.source === source);
     if (sourceDocs.length === 0) continue;
 

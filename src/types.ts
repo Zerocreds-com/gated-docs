@@ -1,6 +1,6 @@
 // ── Source types ──────────────────────────────────────────
 
-export type SourceType = 'google' | 'notion' | 'slack' | 'telegram';
+export type SourceType = 'google' | 'notion' | 'slack' | 'telegram' | 'cloudflare';
 
 export interface SourceConfig {
   enabled: boolean;
@@ -11,6 +11,7 @@ export interface Config {
   sources: Partial<Record<SourceType, SourceConfig>>;
   scan_interval_hours: number;
   bigquery_project?: string; // override project for BQ queries (when SA is in different project)
+  google_impersonate?: string; // email to impersonate via Domain-Wide Delegation (e.g. vladimir@skillset.ae)
 }
 
 // ── Structure (scan output) ──────────────────────────────

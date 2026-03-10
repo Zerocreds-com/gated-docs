@@ -14,15 +14,15 @@ import type { SourceType } from '../types.ts';
 const config = loadConfig();
 let structure = loadStructure();
 
-// Auto-scan if structure is missing or stale
+// Auto-scan in background if stale — don't block server startup
 if (!structure || isStructureStale(config)) {
-  process.stderr.write('[gated-info] Structure stale or missing, scanning...\n');
-  try {
-    structure = await scan();
-    process.stderr.write(`[gated-info] Auto-scan complete: ${structure.docs.length} docs\n`);
-  } catch (e: any) {
-    process.stderr.write(`[gated-info] Auto-scan failed: ${e.message}\n`);
-  }
+  process.stderr.write('[gated-info] Structure stale, will scan in background...\n');
+  scan().then(s => {
+    structure = s;
+    process.stderr.write(`[gated-info] Background scan complete: ${s.docs.length} docs\n`);
+  }).catch(e => {
+    process.stderr.write(`[gated-info] Background scan failed: ${e.message}\n`);
+  });
 }
 
 // Build dynamic descriptions from current structure
@@ -44,7 +44,7 @@ server.tool(
   searchDesc,
   {
     query: z.string().describe('Search query (natural language or keywords)'),
-    source: z.enum(['google', 'notion', 'slack', 'telegram']).optional()
+    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare']).optional()
       .describe('Filter to specific source'),
     limit: z.number().optional()
       .describe('Max results (default: 10)'),
@@ -74,9 +74,21 @@ server.tool(
           const { searchTelegram } = await import('../connectors/telegram.ts');
           const r = await searchTelegram(query, maxResults);
           results.push(...r);
+        } else if (src === 'cloudflare') {
+          const { searchCloudflare } = await import('../connectors/cloudflare.ts');
+          const r = await searchCloudflare(query, maxResults);
+          results.push(...r);
         }
       } catch (e: any) {
         errors.push(`${src}: ${e.message}`);
+      }
+    }
+
+    // Supplement with local structure search (matches tab names, headers, doc names)
+    const localResults = searchStructure(query, source, maxResults);
+    for (const lr of localResults) {
+      if (!results.find(r => r.id === lr.id)) {
+        results.push(lr);
       }
     }
 
@@ -110,7 +122,7 @@ server.tool(
   readDesc,
   {
     id: z.string().describe('Document/page/channel ID'),
-    source: z.enum(['google', 'notion', 'slack', 'telegram'])
+    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare'])
       .describe('Which source this document belongs to'),
   },
   async ({ id, source }) => {
@@ -129,6 +141,9 @@ server.tool(
       } else if (source === 'telegram') {
         const { readTelegramChat } = await import('../connectors/telegram.ts');
         content = await readTelegramChat(id);
+      } else if (source === 'cloudflare') {
+        const { readCloudflareResource } = await import('../connectors/cloudflare.ts');
+        content = await readCloudflareResource(id);
       } else {
         return { content: [{ type: 'text' as const, text: `Unknown source: ${source}` }] };
       }
@@ -144,6 +159,26 @@ server.tool(
       return { content: [{ type: 'text' as const, text: header + body }] };
     } catch (e: any) {
       return { content: [{ type: 'text' as const, text: `Error reading document: ${e.message}` }] };
+    }
+  },
+);
+
+// ── write_document ──────────────────────────────────────
+
+server.tool(
+  'write_document',
+  'Write (overwrite) content to a Google Doc. The document must be shared with the service account. Content replaces all existing text.',
+  {
+    id: z.string().describe('Google Doc ID'),
+    content: z.string().describe('Text content to write (replaces existing content)'),
+  },
+  async ({ id, content }) => {
+    try {
+      const { writeGoogleDoc } = await import('../connectors/google.ts');
+      const result = await writeGoogleDoc(id, content);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error writing document: ${e.message}` }] };
     }
   },
 );
@@ -251,6 +286,103 @@ server.tool(
   },
 );
 
+// ── d1_query ────────────────────────────────────────────
+
+server.tool(
+  'd1_query',
+  'Run a SQL query against a Cloudflare D1 database. Use SQLite syntax. Specify database by name or UUID.',
+  {
+    database: z.string().describe('D1 database name or UUID'),
+    sql: z.string().describe('SQL query (SQLite syntax)'),
+  },
+  async ({ database, sql }) => {
+    try {
+      const { runD1Query } = await import('../connectors/cloudflare.ts');
+      const result = await runD1Query(database, sql);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `D1 error: ${e.message}` }] };
+    }
+  },
+);
+
+// ── check_email ─────────────────────────────────────────
+
+server.tool(
+  'check_email',
+  'Check Gmail inbox. Use to find verification codes, recent messages, or search emails. Uses Gmail search syntax (from:, subject:, newer_than:, is:unread, has:attachment, etc). Without query returns latest emails. Pass message_id to read the full email body.',
+  {
+    query: z.string().optional()
+      .describe('Gmail search query (e.g. "subject:verification newer_than:1h", "from:noreply@github.com", "is:unread")'),
+    message_id: z.string().optional()
+      .describe('Message ID to read full body (from a previous list result)'),
+    max_results: z.number().optional()
+      .describe('Max emails to return (default: 5)'),
+  },
+  async ({ query, message_id, max_results }) => {
+    try {
+      if (message_id) {
+        const { readEmail } = await import('../connectors/gmail.ts');
+        const email = await readEmail(message_id);
+        const lines = [
+          `**From:** ${email.from}`,
+          `**To:** ${email.to}`,
+          `**Subject:** ${email.subject}`,
+          `**Date:** ${email.date}`,
+          '',
+          email.body,
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      }
+
+      const { listEmails } = await import('../connectors/gmail.ts');
+      const emails = await listEmails(query, max_results || 5);
+
+      if (emails.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No emails found${query ? ` for: ${query}` : ''}.` }] };
+      }
+
+      const lines = emails.map((e, i) => {
+        const parts = [
+          `${i + 1}. **${e.subject || '(no subject)'}**`,
+          `   From: ${e.from}`,
+          `   Date: ${e.date}`,
+          `   ${e.snippet}`,
+          `   ID: ${e.id}`,
+        ];
+        return parts.join('\n');
+      });
+
+      return { content: [{ type: 'text' as const, text: `Found ${emails.length} email(s):\n\n${lines.join('\n\n')}` }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Gmail error: ${e.message}` }] };
+    }
+  },
+);
+
+// ── send_email ────────────────────────────────────────────
+
+server.tool(
+  'send_email',
+  'Send an email via Gmail. Requires separate send token (auth gmail --send). Use for sending emails, replies, notifications.',
+  {
+    to: z.string().describe('Recipient email address'),
+    subject: z.string().describe('Email subject line'),
+    body: z.string().describe('Email body (plain text)'),
+    cc: z.string().optional().describe('CC recipients (comma-separated)'),
+    bcc: z.string().optional().describe('BCC recipients (comma-separated)'),
+  },
+  async ({ to, subject, body, cc, bcc }) => {
+    try {
+      const { sendEmail } = await import('../connectors/gmail.ts');
+      const result = await sendEmail(to, subject, body, cc, bcc);
+      return { content: [{ type: 'text' as const, text: `Email sent successfully.\nTo: ${to}\nSubject: ${subject}\nMessage ID: ${result.id}` }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Gmail send error: ${e.message}` }] };
+    }
+  },
+);
+
 // ── Helpers ──────────────────────────────────────────────
 
 function getEnabledSources(): SourceType[] {
@@ -259,7 +391,44 @@ function getEnabledSources(): SourceType[] {
   if (config.sources.notion?.enabled) sources.push('notion');
   if (config.sources.slack?.enabled) sources.push('slack');
   if (config.sources.telegram?.enabled) sources.push('telegram');
+  if (config.sources.cloudflare?.enabled) sources.push('cloudflare');
   return sources;
+}
+
+/**
+ * Local structure search — matches query against doc names, tab names, and headers.
+ * Used as supplement/fallback when API-based search misses results.
+ */
+function searchStructure(query: string, source?: SourceType, limit = 10) {
+  if (!structure) return [];
+  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+  if (terms.length === 0) return [];
+
+  const scored = structure.docs
+    .filter(d => {
+      if (source && d.source !== source) return false;
+      // Exclude BigQuery sharded tables (too many, not useful for text search)
+      if ((d.type === 'table' || d.type === 'dataset' || d.type === 'view') && d.parent?.startsWith('BigQuery/')) return false;
+      return true;
+    })
+    .map(d => {
+      const searchable = `${d.name} ${d.snippet || ''} ${d.parent || ''}`.toLowerCase();
+      const matchCount = terms.filter(t => searchable.includes(t)).length;
+      return { doc: d, score: matchCount };
+    })
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return scored.map(x => ({
+    id: x.doc.id,
+    name: x.doc.name,
+    source: x.doc.source as string,
+    type: x.doc.type,
+    snippet: x.doc.snippet?.slice(0, 200) || '',
+    url: x.doc.url,
+    modified_at: x.doc.modified_at,
+  }));
 }
 
 // ── Start ───────────────────────────────────────────────

@@ -10,7 +10,7 @@ export function generateDescription(
   stats: Structure['stats']
 ): string {
   const parts: string[] = [];
-  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram).');
+  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram, Cloudflare).');
 
   const sourceDescriptions: string[] = [];
 
@@ -58,6 +58,13 @@ export function generateDescription(
     const t = stats.telegram;
     const typeParts = Object.entries(t.types).map(([type, n]) => `${n} ${type}s`).join(', ');
     sourceDescriptions.push(`Telegram: ${t.count} chats (${typeParts})`);
+  }
+
+  // Cloudflare
+  if (stats.cloudflare) {
+    const c = stats.cloudflare;
+    const typeParts = Object.entries(c.types).map(([t, n]) => `${n} ${t}s`).join(', ');
+    sourceDescriptions.push(`Cloudflare: ${c.count} resources (${typeParts})`);
   }
 
   if (sourceDescriptions.length === 0) {
@@ -120,9 +127,64 @@ export function generateDescription(
     }
   }
 
+  // Cloudflare infrastructure — compact summaries
+  const cfDocs = docs.filter(d => d.source === 'cloudflare');
+  if (cfDocs.length > 0) {
+    parts.push('');
+    parts.push('Cloudflare infrastructure (use search/read_document for details):');
+
+    // Zones
+    const zones = cfDocs.filter(d => d.type === 'zone');
+    if (zones.length) {
+      const zoneList = zones.map(z => {
+        const dns = z.snippet ? ` (${z.snippet})` : '';
+        return `${z.name}${dns}`;
+      }).join(', ');
+      parts.push(`  Zones: ${zoneList}`);
+    }
+
+    // Workers
+    const workers = cfDocs.filter(d => d.type === 'worker');
+    if (workers.length) {
+      parts.push(`  Workers: ${workers.map(w => w.name).join(', ')}`);
+    }
+
+    // Pages
+    const pages = cfDocs.filter(d => d.type === 'pages_project');
+    if (pages.length) {
+      const pageList = pages.map(p => {
+        const domains = p.snippet ? ` (${p.snippet})` : '';
+        return `${p.name}${domains}`;
+      }).join(', ');
+      parts.push(`  Pages: ${pageList}`);
+    }
+
+    // D1 databases (use d1_query for SQL)
+    const d1 = cfDocs.filter(d => d.type === 'd1_database');
+    if (d1.length) {
+      parts.push(`  D1 databases (use d1_query for SQL):`);
+      for (const db of d1) {
+        const tables = db.snippet ? ` — ${db.snippet}` : '';
+        parts.push(`    ${db.name}${tables}`);
+      }
+    }
+
+    // KV
+    const kv = cfDocs.filter(d => d.type === 'kv_namespace');
+    if (kv.length) {
+      parts.push(`  KV: ${kv.map(k => k.name).join(', ')}`);
+    }
+
+    // R2
+    const r2 = cfDocs.filter(d => d.type === 'r2_bucket');
+    if (r2.length) {
+      parts.push(`  R2: ${r2.map(b => b.name).join(', ')}`);
+    }
+  }
+
   parts.push('');
-  parts.push('Use search for text queries. Use bigquery_query for SQL. Use list_sources for full schemas.');
-  parts.push('Specify source parameter to narrow search to google/notion/slack/telegram.');
+  parts.push('Use search for text queries. Use bigquery_query for BigQuery SQL, d1_query for D1 SQL.');
+  parts.push('Use list_sources for full schemas. Specify source to narrow search.');
 
   return parts.join('\n');
 }
@@ -193,6 +255,7 @@ function summarizeSheet(name: string, snippet: string): string {
   const sheetParts = snippet.split(' | ');
   const summaries: string[] = [];
 
+  // Show first 3 tabs with headers
   for (const part of sheetParts.slice(0, 3)) {
     const match = part.match(/^(.+?)\[(.+)\]$/);
     if (match) {
@@ -205,7 +268,14 @@ function summarizeSheet(name: string, snippet: string): string {
     }
   }
 
-  if (sheetParts.length > 3) summaries.push(`+${sheetParts.length - 3} more sheets`);
+  // Show remaining tab NAMES (without headers) so Claude knows they exist
+  if (sheetParts.length > 3) {
+    const extraNames = sheetParts.slice(3).map(part => {
+      const match = part.match(/^(.+?)\[/);
+      return match ? match[1] : part;
+    });
+    summaries.push(`also: ${extraNames.join(', ')}`);
+  }
   return summaries.join(' | ');
 }
 

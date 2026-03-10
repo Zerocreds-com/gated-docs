@@ -166,9 +166,11 @@ Claude can ask: `read_document({id: "1abc...", source: "google"})` → gets all 
 | **View running jobs** | What's running now, who started it |
 | **Query history** | Recent queries and their results |
 | **Cost** | First 1TB/month free, then $6.25/TB |
-| **Access** | IAM role: `bigquery.user` + `bigquery.dataViewer` |
+| **Access** | IAM role: `bigquery.user` + `bigquery.dataViewer`, or DWD |
 | **API** | `bigquery.googleapis.com` |
-| **Auth** | Service Account |
+| **Auth** | Service Account (direct IAM or DWD impersonation) |
+
+**Cross-project queries:** If the SA is in a different project than the data, set `bigquery_project` in config or use [DWD](#domain-wide-delegation-dwd) to impersonate a user who has access.
 
 Claude can ask:
 - `bigquery_query({sql: "SELECT * FROM dataset.table LIMIT 10"})`
@@ -178,25 +180,78 @@ Claude can ask:
 ### Gmail
 | What | How |
 |------|-----|
-| **Search emails** | Gmail search syntax (`from:`, `subject:`, `after:`) |
-| **Read email** | Full body, attachments list |
-| **List threads** | Recent conversations |
-| **Access** | **OAuth2 only** (SA can't access personal Gmail) |
+| **Search emails** | Gmail search syntax (`from:`, `subject:`, `newer_than:`, `is:unread`) |
+| **Read email** | Full body text (HTML stripped to plain text) |
+| **List recent** | Latest emails with subject, sender, date, snippet |
+| **Use case** | Verification codes, notifications, quick inbox check |
 | **API** | `gmail.googleapis.com` |
-| **Auth** | OAuth2 (one-time browser login) |
+| **Auth** | **OAuth2 refresh token** (recommended) or DWD or ADC fallback |
 
-**Why not SA?** Gmail is personal — Google doesn't allow service accounts to read someone's email without domain-wide delegation (Workspace admin only).
+#### Option A: OAuth2 refresh token (recommended, permanent, no admin needed)
 
-**OAuth2 setup:**
-1. Go to [Credentials](https://console.cloud.google.com/apis/credentials)
-2. **"+ Create Credentials"** → **OAuth Client ID** → **Desktop app**
-3. Download `client_secret_xxx.json`
-4. Set [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) to **Production** (avoids 7-day token expiry)
+Like n8n — one-time browser consent, then permanent access via refresh token. Works with personal Gmail and Workspace.
+
+1. Enable Gmail API: [Enable Gmail API](https://console.cloud.google.com/apis/api/gmail.googleapis.com)
+2. Create OAuth Client ID:
+   - [Credentials page](https://console.cloud.google.com/apis/credentials) → **Create Credentials** → **OAuth client ID**
+   - If prompted for consent screen: **External** → fill app name (e.g. "gated-info") → add your email as test user → save
+   - Application type: **Desktop app** → Create
+   - Download the JSON file (or copy Client ID + Client Secret)
+3. Run:
+```bash
+node --experimental-strip-types bin/gated-info.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
+```
+4. Browser opens → sign in → grant read-only access → done. Refresh token stored in Keychain permanently.
+
+To disconnect: `node --experimental-strip-types bin/gated-info.ts deauth gmail`
+
+#### Option B: Domain-Wide Delegation (permanent, requires Workspace admin)
+
+SA impersonates a Workspace user — no token refresh ever. Requires Google Workspace admin.
+
+1. Enable Gmail API: [Enable Gmail API](https://console.cloud.google.com/apis/api/gmail.googleapis.com)
+2. Set up DWD — see [Domain-Wide Delegation](#domain-wide-delegation-dwd) section below
+3. Set the impersonation email:
+```bash
+node --experimental-strip-types bin/gated-info.ts impersonate user@yourdomain.com
+```
+4. Done. `check_email` now uses SA + DWD permanently.
+
+#### Option C: ADC fallback (no admin needed, tokens expire)
+
+Uses your personal OAuth token. Simpler but requires periodic refresh.
+
+1. Enable Gmail API: [Enable Gmail API](https://console.cloud.google.com/apis/api/gmail.googleapis.com)
+2. Run ADC login with `gmail.readonly` scope:
+```bash
+gcloud auth application-default login \
+  --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/gmail.readonly"
+```
+3. Done. Token lasts ~1 hour, then needs refresh.
+
+**MCP tool:** `check_email`
+```
+check_email(query="subject:verification newer_than:1h")     # find recent verification codes
+check_email(query="from:github.com is:unread")              # unread GitHub notifications
+check_email()                                                # latest 5 emails
+check_email(message_id="abc123")                             # read full email body
+```
+
+#### Sending emails
+
+Requires a separate OAuth2 token with `gmail.send` scope:
 
 ```bash
-node --experimental-strip-types bin/gated-info.ts auth gmail --client-secret ~/Downloads/client_secret.json
-# → Opens browser → log in → authorize → refresh token → Keychain
+node --experimental-strip-types bin/gated-info.ts auth gmail --send
 ```
+
+**MCP tool:** `send_email`
+```
+send_email(to="john@example.com", subject="Hello", body="Message text")
+send_email(to="a@b.com", subject="Тема", body="Текст", cc="c@d.com")
+```
+
+Subject and body are RFC 2047/base64 encoded — non-ASCII characters (Cyrillic, emoji, etc.) are fully supported.
 
 ### Google Calendar
 | What | How |
@@ -240,13 +295,100 @@ Pick what you need:
 - [ ] **Google Sheets** — enable API (Drive share covers access)
 - [ ] **Google Docs** — enable API (Drive share covers access)
 - [ ] **BigQuery** — enable API, grant `bigquery.user` + `bigquery.dataViewer` roles
-- [ ] **Gmail** — enable API, create OAuth Client ID, run `auth gmail`
+- [ ] **Gmail** — enable API, set up DWD (recommended) or use ADC fallback
 - [ ] **Google Calendar** — enable API, share calendar with SA
 
 After enabling, run:
 ```bash
 node --experimental-strip-types bin/gated-info.ts scan
 ```
+
+---
+
+## Domain-Wide Delegation (DWD)
+
+Domain-Wide Delegation lets the service account act on behalf of a Google Workspace user. This gives permanent access to Gmail and BigQuery without token refreshes.
+
+**When you need DWD:**
+- Reading Gmail (SA can't access mailboxes without DWD)
+- Querying BigQuery datasets that the SA doesn't have direct IAM access to, but a Workspace user does
+
+**Requirements:**
+- Google Workspace (not personal Gmail)
+- Workspace admin access (or an admin who can make the change)
+
+### Setup (two parts)
+
+#### Part 1: Enable DWD on the Service Account (GCP Console — you do this)
+
+1. Open [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+2. Click on your service account (`gated-info@...`)
+3. Go to **Details** tab → expand **Show domain-wide delegation**
+4. Check **Enable Google Workspace Domain-wide Delegation**
+5. Save — note the **Client ID** (numeric, e.g. `112704238198897838115`)
+
+Or find your Client ID:
+```bash
+node --experimental-strip-types bin/gated-info.ts impersonate user@yourdomain.com
+# prints the Client ID
+```
+
+#### Part 2: Authorize in Admin Console (Workspace admin does this)
+
+> **Copy-paste these instructions to your admin:**
+
+---
+
+**Task:** Authorize a service account for Domain-Wide Delegation
+
+1. Open **[admin.google.com](https://admin.google.com)** → sign in as admin
+2. Go to: **Security** → **Access and data control** → **API controls**
+3. Scroll down to **Domain-wide delegation** → click **Manage Domain-wide Delegation**
+4. Click **Add new**
+5. Fill in:
+   - **Client ID:** `YOUR_CLIENT_ID`
+   - **OAuth scopes** (one line, comma-separated):
+     ```
+     https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/bigquery.readonly
+     ```
+6. Click **Authorize**
+
+That's it. Changes take effect within a few minutes.
+
+---
+
+> **Note:** There is no gcloud CLI command for this step — Google only provides the Admin Console UI. This is a one-time setup.
+
+#### Part 3: Configure gated-info
+
+```bash
+# Set the email to impersonate (the Workspace user whose data you want to access)
+node --experimental-strip-types bin/gated-info.ts impersonate user@yourdomain.com
+```
+
+#### Verify it works
+
+```bash
+# Test Gmail
+node --experimental-strip-types bin/gated-info.ts check-email "newer_than:1d"
+
+# Test BigQuery
+node --experimental-strip-types bin/gated-info.ts search "test"
+```
+
+### DWD Scopes Reference
+
+Add only what you need:
+
+| Scope | What it allows |
+|-------|---------------|
+| `https://www.googleapis.com/auth/gmail.readonly` | Read emails |
+| `https://www.googleapis.com/auth/bigquery.readonly` | Query BigQuery |
+| `https://www.googleapis.com/auth/drive.readonly` | Read Drive files |
+| `https://www.googleapis.com/auth/spreadsheets.readonly` | Read Sheets |
+| `https://www.googleapis.com/auth/calendar.readonly` | Read Calendar events |
+
+To add more scopes later, the admin edits the existing DWD entry — doesn't need to create a new one.
 
 ---
 
@@ -262,8 +404,18 @@ node --experimental-strip-types bin/gated-info.ts scan
 node --experimental-strip-types bin/gated-info.ts auth google --service-account key.json
 ```
 
-**"Token expired" for Gmail** → OAuth consent screen is in "Testing" mode. Switch to Production:
-[OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) → **Publish App**
+**"unauthorized_client: Client is unauthorized to retrieve access tokens using this method"** → DWD not configured or not yet active. Check:
+1. Is DWD enabled on the SA in GCP Console? (Part 1 above)
+2. Is the Client ID + scopes authorized in Admin Console? (Part 2 above)
+3. Wait a few minutes — changes can take up to 5 minutes to propagate
+
+**"Token expired" for Gmail (ADC mode)** → ADC token expired. Re-run:
+```bash
+gcloud auth application-default login \
+  --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/gmail.readonly"
+```
+
+**"Delegation denied for user@domain.com"** → The impersonate email doesn't match the Workspace domain, or the user doesn't exist.
 
 **"Key creation is not allowed"** → Organization policy blocks SA key creation. If you manage the org:
 ```bash

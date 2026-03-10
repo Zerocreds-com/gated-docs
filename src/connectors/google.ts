@@ -9,6 +9,7 @@ import type { SearchResult, DocContent, StructureDoc } from '../types.ts';
 
 let cachedAuth: ReturnType<typeof google.auth.GoogleAuth> | null = null;
 let cachedAccount: string | null = null;
+let cachedWriteAuth: ReturnType<typeof google.auth.GoogleAuth> | null = null;
 
 function getAuth(): ReturnType<typeof google.auth.GoogleAuth> {
   const config = loadConfig();
@@ -30,6 +31,27 @@ function getAuth(): ReturnType<typeof google.auth.GoogleAuth> {
   });
   cachedAccount = account;
   return cachedAuth;
+}
+
+function getWriteAuth(): ReturnType<typeof google.auth.GoogleAuth> {
+  if (cachedWriteAuth) return cachedWriteAuth;
+
+  const config = loadConfig();
+  const account = config.sources.google?.account;
+  if (!account) throw new Error('Google not configured. Run: gated-info auth google --service-account <key.json>');
+
+  const credentials = getServiceAccountCredentials(account);
+  if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}.`);
+
+  cachedWriteAuth = new google.auth.GoogleAuth({
+    credentials: credentials as any,
+    scopes: [
+      'https://www.googleapis.com/auth/documents',
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive',
+    ],
+  });
+  return cachedWriteAuth;
 }
 
 function getDrive(): drive_v3.Drive {
@@ -91,20 +113,13 @@ export async function scanGoogleDrive(): Promise<StructureDoc[]> {
       const sheetInfos: string[] = [];
       for (const sheetName of sheetNames.slice(0, 10)) {
         try {
-          // Fetch first 5 rows to find headers (not always row 1)
+          // Fetch first 5 rows to find headers
           const res = await sheets.spreadsheets.values.get({
             spreadsheetId: doc.id,
             range: `'${sheetName}'!A1:Z5`,
           });
           const rows = res.data.values || [];
-          // Header row = row with most non-empty cells in first 5
-          let bestRow: string[] = [];
-          let bestCount = 0;
-          for (const row of rows) {
-            const filled = row.filter((c: string) => c && c.trim()).length;
-            if (filled > bestCount) { bestCount = filled; bestRow = row; }
-          }
-          const headers = bestRow.filter((c: string) => c && c.trim()).join(', ');
+          const headers = detectHeaderRow(rows);
           sheetInfos.push(headers ? `${sheetName}[${headers}]` : sheetName);
         } catch {
           sheetInfos.push(sheetName);
@@ -270,7 +285,91 @@ async function readDocumentContent(docId: string): Promise<string> {
   return String(exported.data);
 }
 
+// ── Write document content ───────────────────────────────
+
+export async function writeGoogleDoc(docId: string, content: string): Promise<string> {
+  const docs = google.docs({ version: 'v1', auth: getWriteAuth() });
+
+  // Get current doc to find end index
+  const doc = await docs.documents.get({ documentId: docId, fields: 'body.content' });
+  const bodyContent = doc.data.body?.content || [];
+  const lastElement = bodyContent[bodyContent.length - 1];
+  const endIndex = lastElement?.endIndex ?? 1;
+
+  const requests: any[] = [];
+
+  // Delete all existing content (keep minimum 1-char paragraph)
+  if (endIndex > 1) {
+    requests.push({
+      deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } },
+    });
+  }
+
+  // Insert new content
+  requests.push({
+    insertText: { location: { index: 1 }, text: content },
+  });
+
+  await docs.documents.batchUpdate({
+    documentId: docId,
+    requestBody: { requests },
+  });
+
+  const meta = await google.drive({ version: 'v3', auth: getWriteAuth() }).files.get({
+    fileId: docId,
+    fields: 'name, webViewLink',
+  });
+
+  return `Written to "${meta.data.name}" — ${meta.data.webViewLink}`;
+}
+
 // ── Utils ────────────────────────────────────────────────
+
+/**
+ * Detect the header row from the first few rows of a sheet.
+ * Strategy: prefer row 1 if it looks like headers (text labels, not data).
+ * Fall back to the row with the best "header score" if row 1 is empty or data-like.
+ */
+function detectHeaderRow(rows: string[][]): string {
+  if (rows.length === 0) return '';
+
+  function headerScore(row: string[]): number {
+    const filled = row.filter(c => c && c.trim());
+    if (filled.length === 0) return 0;
+    // Headers are typically short text labels, not emails/dates/numbers
+    let textLike = 0;
+    for (const cell of filled) {
+      const v = cell.trim();
+      // Penalize: emails, dates, long numbers, URLs
+      if (v.includes('@') || /^\d{4}[-/]/.test(v) || /^[\d,.]+$/.test(v) || v.startsWith('http')) continue;
+      // Penalize very long values (likely data, not headers)
+      if (v.length > 60) continue;
+      textLike++;
+    }
+    // Score: ratio of text-like cells * count bonus
+    return (textLike / filled.length) * filled.length;
+  }
+
+  // Score each row
+  const scores = rows.map((row, i) => ({ row, score: headerScore(row), idx: i }));
+
+  // Prefer row 1 (idx 0) if it has a reasonable score
+  const row1 = scores[0];
+  if (row1 && row1.score >= 2) {
+    const filled = row1.row.filter(c => c && c.trim());
+    return filled.join(', ');
+  }
+
+  // Otherwise pick the best-scoring row
+  scores.sort((a, b) => b.score - a.score);
+  const best = scores[0];
+  if (best && best.score > 0) {
+    const filled = best.row.filter(c => c && c.trim());
+    return filled.join(', ');
+  }
+
+  return '';
+}
 
 function mimeToType(mime: string): string {
   if (mime.includes('spreadsheet')) return 'spreadsheet';

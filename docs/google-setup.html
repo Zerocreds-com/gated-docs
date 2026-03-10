@@ -329,7 +329,12 @@
   <li>Set <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank">OAuth consent screen</a> to <strong>Production</strong> (avoids 7-day token expiry)</li>
 </ol>
 <div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth gmail --client-secret ~/Downloads/client_secret.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
-<p style="color:var(--text-dim)">Opens browser &rarr; log in &rarr; authorize &rarr; refresh token saved to Keychain.</p>
+<p style="color:var(--text-dim)">Opens browser &rarr; log in &rarr; authorize &rarr; refresh token saved to Keychain. This grants <code>gmail.readonly</code> scope.</p>
+
+<h4>Sending emails</h4>
+<p>Requires a separate token with <code>gmail.send</code> scope (reuses the same OAuth Client ID):</p>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth gmail --send</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<p style="color:var(--text-dim)">Subject and body are RFC 2047/base64 encoded &mdash; non-ASCII characters (Cyrillic, emoji, etc.) are fully supported.</p>
 
 <h3>Google Calendar</h3>
 <ol>
@@ -385,7 +390,7 @@
   </tr>
   <tr>
     <td><strong>Gmail</strong></td>
-    <td>Search emails, read threads, attachments</td>
+    <td>Search, read, and send emails</td>
     <td><span class="badge oauth">OAuth2</span></td>
     <td><code>gmail.googleapis.com</code></td>
   </tr>

@@ -2,10 +2,10 @@
 /**
  * gated-info CLI — auth, scan, search, status, setup.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadConfig, saveConfig, loadStructure, CONFIG_PATH, STRUCTURE_PATH } from '../src/config.ts';
-import { storeServiceAccountJson, storeCredential, hasCredential, deleteCredential } from '../src/keychain.ts';
+import { storeServiceAccountJson, storeCredential, hasCredential, deleteCredential, getServiceAccountCredentials } from '../src/keychain.ts';
 import { scan } from '../src/scanner.ts';
 
 const args = process.argv.slice(2);
@@ -43,6 +43,12 @@ async function main() {
       break;
     case 'deauth':
       cmdDeauth();
+      break;
+    case 'check-email':
+      await cmdCheckEmail();
+      break;
+    case 'impersonate':
+      cmdImpersonate();
       break;
     default:
       printHelp();
@@ -95,6 +101,14 @@ async function cmdAuth() {
     // Update config
     const config = loadConfig();
     config.sources.google = { enabled: true, account: email };
+
+    // --impersonate flag: enable Domain-Wide Delegation
+    const impFlag = args.indexOf('--impersonate');
+    if (impFlag !== -1 && args[impFlag + 1]) {
+      config.google_impersonate = args[impFlag + 1];
+      ok(`Domain-Wide Delegation: will impersonate ${config.google_impersonate}`);
+    }
+
     saveConfig(config);
     ok('Config updated');
 
@@ -111,6 +125,10 @@ async function cmdAuth() {
     console.log(`  1. Share your Google Drive folder with: ${CYAN}${email}${NC}`);
     console.log(`     (Right-click folder → Share → paste the email → Viewer)`);
     console.log(`  2. Restart Claude Code to pick up the MCP server`);
+    updateClaudeMdAuth();
+
+  } else if (source === 'gmail') {
+    await authGmail();
 
   } else if (source === 'notion') {
     const tokenFlag = args.indexOf('--token');
@@ -207,9 +225,219 @@ async function cmdAuth() {
 
     await autoScan();
 
+  } else if (source === 'cloudflare') {
+    const tokenFlag = args.indexOf('--token');
+    if (tokenFlag === -1 || !args[tokenFlag + 1]) {
+      fail('Usage: gated-info auth cloudflare --token <api-token>');
+      console.log(`\n${DIM}How to get a Cloudflare API token:`);
+      console.log('  1. Go to https://dash.cloudflare.com/profile/api-tokens');
+      console.log('  2. Click "Create Token"');
+      console.log('  3. Use "Custom token" template');
+      console.log('  4. Add permissions (all Read):');
+      console.log('     Zone: Zone, DNS');
+      console.log('     Account: Workers Scripts, Pages, D1, Workers KV Storage, R2');
+      console.log('  5. Zone Resources: Include All Zones');
+      console.log(`  6. Copy the token and run: gated-info auth cloudflare --token <token>${NC}`);
+      process.exit(1);
+    }
+
+    const token = args[tokenFlag + 1];
+    storeCredential('cloudflare', 'default', token);
+    ok('Cloudflare API token stored in Keychain');
+
+    const config = loadConfig();
+    config.sources.cloudflare = { enabled: true };
+    saveConfig(config);
+    ok('Config updated');
+
+    await autoScan();
+
   } else {
-    fail('Usage: gated-info auth <google|notion|slack|telegram> [options]');
+    fail('Usage: gated-info auth <google|notion|slack|telegram|cloudflare> [options]');
   }
+}
+
+// ── auth gmail (OAuth2) ──────────────────────────────────
+
+async function authGmail() {
+  const isSend = args.includes('--send');
+  const scope = isSend
+    ? 'https://www.googleapis.com/auth/gmail.send'
+    : 'https://www.googleapis.com/auth/gmail.readonly';
+  const keychainKey = isSend ? 'oauth-send' : 'oauth';
+  const label = isSend ? 'Gmail send' : 'Gmail read';
+
+  const { google } = await import('googleapis');
+  const http = await import('node:http');
+  const { storeCredential, getCredential } = await import('../src/keychain.ts');
+
+  // Get client_id/secret from flags, file, or reuse from existing read token
+  let clientId: string | undefined;
+  let clientSecret: string | undefined;
+
+  const fileFlag = args.indexOf('--client-secret-file');
+  const idFlag = args.indexOf('--client-id');
+  const secretFlag = args.indexOf('--client-secret');
+
+  if (fileFlag !== -1 && args[fileFlag + 1]) {
+    const filePath = resolve(args[fileFlag + 1]);
+    if (!existsSync(filePath)) { fail(`File not found: ${filePath}`); process.exit(1); }
+    const raw = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const creds = raw.installed || raw.web;
+    if (!creds) { fail('Invalid OAuth client JSON — expected "installed" or "web" key'); process.exit(1); }
+    clientId = creds.client_id;
+    clientSecret = creds.client_secret;
+  } else if (idFlag !== -1 && secretFlag !== -1 && args[idFlag + 1] && args[secretFlag + 1]) {
+    clientId = args[idFlag + 1];
+    clientSecret = args[secretFlag + 1];
+  } else {
+    // Try reusing client_id/secret from existing read token
+    const existing = getCredential('gmail', 'oauth');
+    if (existing) {
+      try {
+        const decoded = JSON.parse(Buffer.from(existing, 'base64').toString('utf-8'));
+        clientId = decoded.client_id;
+        clientSecret = decoded.client_secret;
+        info(`Reusing OAuth client from existing Gmail read token`);
+      } catch {}
+    }
+  }
+
+  if (!clientId || !clientSecret) {
+    fail('Usage: gated-info auth gmail [--send] --client-secret-file <path/client_secret.json>');
+    console.log(`       gated-info auth gmail [--send] --client-id <ID> --client-secret <SECRET>`);
+    console.log(`\n${DIM}How to get OAuth credentials:`);
+    console.log('  1. Open https://console.cloud.google.com/apis/credentials');
+    console.log('  2. Click "+ Create Credentials" → "OAuth client ID"');
+    console.log('  3. Application type: "Desktop app"');
+    console.log('  4. Download the JSON file');
+    console.log(`  5. Run: gated-info auth gmail --client-secret-file ~/Downloads/client_secret_xxx.json${NC}`);
+    if (isSend) console.log(`\nTip: if you already ran 'auth gmail' (read), just run 'auth gmail --send' — client creds will be reused.`);
+    process.exit(1);
+  }
+
+  const oauth2 = new google.auth.OAuth2(clientId, clientSecret, 'http://localhost:3847/callback');
+  const authUrl = oauth2.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: [scope],
+  });
+
+  // Start temporary local server to receive the callback
+  const code = await new Promise<string>((resolve, reject) => {
+    const srv = http.createServer((req, res) => {
+      const url = new URL(req.url!, 'http://localhost:3847');
+      const code = url.searchParams.get('code');
+      const error = url.searchParams.get('error');
+
+      if (error) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<h2>Authorization denied</h2><p>You can close this tab.</p>');
+        srv.close();
+        reject(new Error(`OAuth denied: ${error}`));
+        return;
+      }
+
+      if (code) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<h2>✓ ${label} connected!</h2><p>You can close this tab and return to the terminal.</p>`);
+        srv.close();
+        resolve(code);
+        return;
+      }
+
+      res.writeHead(404);
+      res.end();
+    });
+
+    srv.listen(3847, () => {
+      info(`Opening browser for ${label} authorization...`);
+      import('node:child_process').then(cp => {
+        cp.execSync(`open "${authUrl}"`);
+      });
+    });
+
+    // Timeout after 2 minutes
+    setTimeout(() => { srv.close(); reject(new Error('Auth timed out (2 min)')); }, 120000);
+  });
+
+  // Exchange code for tokens
+  info('Exchanging auth code for tokens...');
+  const { tokens } = await oauth2.getToken(code);
+
+  if (!tokens.refresh_token) {
+    fail('No refresh token received. Try again — Google may require re-consent.');
+    process.exit(1);
+  }
+
+  // Store in Keychain (base64-encoded — security CLI strips JSON quotes)
+  const creds = JSON.stringify({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: tokens.refresh_token,
+  });
+  storeCredential('gmail', keychainKey, Buffer.from(creds).toString('base64'));
+  ok(`${label} OAuth tokens stored in Keychain`);
+
+  // Verify — getProfile requires gmail.readonly, skip for send-only token
+  oauth2.setCredentials(tokens);
+  if (!isSend) {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    ok(`Connected to: ${profile.data.emailAddress}`);
+  } else {
+    ok(`Gmail send token stored (gmail.send scope)`);
+  }
+
+  console.log(`\n${label} access is permanent — no token refresh needed.`);
+  console.log(`To revoke: ${CYAN}gated-info deauth gmail${NC}`);
+  if (!isSend && !getCredential('gmail', 'oauth-send')) {
+    console.log(`\nTo also enable sending: ${CYAN}gated-info auth gmail --send${NC} (reuses same client creds)`);
+  }
+  updateClaudeMdAuth();
+}
+
+// ── update CLAUDE.md auth status ─────────────────────────
+
+function updateClaudeMdAuth() {
+  const claudeMdPath = resolve(import.meta.dirname!, '..', 'CLAUDE.md');
+  if (!existsSync(claudeMdPath)) return;
+
+  try {
+    let content = readFileSync(claudeMdPath, 'utf-8');
+    const config = loadConfig();
+
+    // Build current auth status
+    const lines: string[] = [];
+    if (config.sources.google?.enabled) {
+      const sa = config.sources.google.account || 'unknown';
+      lines.push(`- Google Drive/Sheets/Docs: SA (${sa})`);
+    }
+    if (config.sources.google?.enabled && config.google_impersonate) {
+      lines.push(`- BigQuery: SA + DWD impersonating ${config.google_impersonate}`);
+    }
+    if (hasCredential('gmail', 'oauth')) {
+      const sendToo = hasCredential('gmail', 'oauth-send');
+      lines.push(`- Gmail read: OAuth2 refresh token (permanent)`);
+      if (sendToo) lines.push('- Gmail send: OAuth2 refresh token (permanent)');
+    }
+    if (config.sources.notion?.enabled) lines.push('- Notion: integration token');
+    if (config.sources.slack?.enabled) lines.push('- Slack: bot token');
+    if (config.sources.telegram?.enabled) lines.push('- Telegram: MTProto session');
+    if (config.sources.cloudflare?.enabled) lines.push('- Cloudflare: API token');
+
+    const authBlock = `## Current auth\n\n${lines.join('\n')}`;
+
+    // Replace or append auth block
+    const authRegex = /## Current auth\n\n[\s\S]*?(?=\n## |\n$)/;
+    if (authRegex.test(content)) {
+      content = content.replace(authRegex, authBlock);
+    } else {
+      content = content.trimEnd() + '\n\n' + authBlock + '\n';
+    }
+
+    writeFileSync(claudeMdPath, content);
+  } catch {}
 }
 
 // ── auto-scan helper ────────────────────────────────────
@@ -224,6 +452,7 @@ async function autoScan() {
     warn(`Scan failed: ${e.message}`);
     console.log(`You can retry: ${CYAN}gated-info scan${NC}`);
   }
+  updateClaudeMdAuth();
 }
 
 // ── scan ────────────────────────────────────────────────
@@ -287,6 +516,26 @@ function cmdStatus() {
     console.log(`  Telegram: ${DIM}not configured${NC}`);
   }
 
+  // Gmail (separate from Google source)
+  const gmailRead = hasCredential('gmail', 'oauth');
+  const gmailSend = hasCredential('gmail', 'oauth-send');
+  if (gmailRead || gmailSend) {
+    const parts = [];
+    if (gmailRead) parts.push('read');
+    if (gmailSend) parts.push('send');
+    console.log(`  Gmail:  ${GREEN}connected${NC} (${parts.join(' + ')})`);
+  } else {
+    console.log(`  Gmail:  ${DIM}not configured${NC}`);
+  }
+
+  const cloudflareCfg = config.sources.cloudflare;
+  if (cloudflareCfg?.enabled) {
+    const hasCreds = hasCredential('cloudflare', 'default');
+    console.log(`  Cloudflare: ${hasCreds ? GREEN + 'connected' : RED + 'no credentials'}${NC}`);
+  } else {
+    console.log(`  Cloudflare: ${DIM}not configured${NC}`);
+  }
+
   // Structure
   if (structure) {
     console.log(`\n${BOLD}Last scan:${NC} ${structure.generated_at}`);
@@ -344,6 +593,15 @@ async function cmdSearch() {
     }
   }
 
+  if (config.sources.cloudflare?.enabled) {
+    try {
+      const { searchCloudflare } = await import('../src/connectors/cloudflare.ts');
+      results.push(...await searchCloudflare(query, 5));
+    } catch (e: any) {
+      warn(`Cloudflare: ${e.message}`);
+    }
+  }
+
   if (results.length === 0) {
     console.log('No results found.');
     return;
@@ -392,12 +650,80 @@ async function cmdSetup() {
   console.log('');
 }
 
+// ── check-email ──────────────────────────────────────────
+
+async function cmdCheckEmail() {
+  const queryOrId = args.slice(1).join(' ');
+
+  // If argument looks like a message ID (no spaces, alphanumeric), read full email
+  if (queryOrId && /^[a-zA-Z0-9]+$/.test(queryOrId) && queryOrId.length > 10) {
+    info(`Reading email ${queryOrId}...`);
+    const { readEmail } = await import('../src/connectors/gmail.ts');
+    const email = await readEmail(queryOrId);
+    console.log(`\n  ${BOLD}${email.subject}${NC}`);
+    console.log(`  From: ${email.from}`);
+    console.log(`  Date: ${email.date}`);
+    console.log(`  ${DIM}───${NC}`);
+    console.log(email.body);
+    return;
+  }
+
+  const query = queryOrId || undefined;
+  info(query ? `Searching emails: "${query}"...` : 'Fetching latest emails...');
+
+  const { listEmails } = await import('../src/connectors/gmail.ts');
+  const emails = await listEmails(query, 10);
+
+  if (emails.length === 0) {
+    console.log('No emails found.');
+    return;
+  }
+
+  for (const e of emails) {
+    console.log(`\n  ${BOLD}${e.subject || '(no subject)'}${NC}`);
+    console.log(`  From: ${e.from}`);
+    console.log(`  Date: ${e.date}`);
+    if (e.snippet) console.log(`  ${DIM}${e.snippet.slice(0, 120)}${NC}`);
+    console.log(`  ID: ${CYAN}${e.id}${NC}`);
+  }
+  console.log('');
+}
+
+// ── impersonate (set DWD email) ──────────────────────────
+
+function cmdImpersonate() {
+  const email = args[1];
+  if (!email || !email.includes('@')) {
+    fail('Usage: gated-info impersonate <user@domain.com>');
+    console.log(`\n${DIM}Sets Domain-Wide Delegation impersonation email.`);
+    console.log('The SA will act on behalf of this user for Gmail and BigQuery.');
+    console.log(`Requires DWD to be configured in Google Admin Console.${NC}`);
+    process.exit(1);
+  }
+
+  const config = loadConfig();
+  config.google_impersonate = email;
+  saveConfig(config);
+  ok(`Impersonation set: ${email}`);
+  console.log(`\n${BOLD}Make sure DWD is configured:${NC}`);
+  console.log(`  admin.google.com → Security → API controls → Domain-wide delegation`);
+  console.log(`  Client ID: ${CYAN}${getSaClientId(config) || '(run gated-info status to check)'}${NC}`);
+  console.log(`  Scopes: gmail.readonly, bigquery.readonly`);
+}
+
+function getSaClientId(config: ReturnType<typeof loadConfig>): string {
+  const account = config.sources.google?.account;
+  if (!account) return '';
+  const creds = getServiceAccountCredentials(account);
+  return (creds as any)?.client_id || '';
+}
+
 // ── deauth ──────────────────────────────────────────────
 
 function cmdDeauth() {
   const source = args[1];
   if (!source) {
-    fail('Usage: gated-info deauth <google|notion|slack>');
+    fail('Usage: gated-info deauth <google|notion|slack|telegram|cloudflare|gmail>');
     process.exit(1);
   }
 
@@ -415,10 +741,17 @@ function cmdDeauth() {
   } else if (source === 'telegram') {
     deleteCredential('telegram', 'default');
     config.sources.telegram = { enabled: false };
+  } else if (source === 'cloudflare') {
+    deleteCredential('cloudflare', 'default');
+    config.sources.cloudflare = { enabled: false };
+  } else if (source === 'gmail') {
+    deleteCredential('gmail', 'oauth');
+    deleteCredential('gmail', 'oauth-send');
   }
 
   saveConfig(config);
   ok(`${source} disconnected`);
+  updateClaudeMdAuth();
 }
 
 // ── help ────────────────────────────────────────────────
@@ -429,11 +762,17 @@ ${BOLD}gated-info${NC} — MCP server for auth-gated sources
 
 ${BOLD}Commands:${NC}
   auth google --service-account <key.json>   Connect Google Drive
+    [--impersonate user@domain.com]            Enable Domain-Wide Delegation
+  impersonate <email>                        Set DWD impersonation email
   auth notion --token <ntn_xxx>              Connect Notion
   auth slack  --token <xoxb-xxx>             Connect Slack
   auth telegram                              Connect Telegram (Client API)
+  auth cloudflare --token <cf-token>         Connect Cloudflare
+  auth gmail --client-secret-file <json>     Connect Gmail read (OAuth2, permanent)
+  auth gmail --send                          Connect Gmail send (reuses client creds)
   scan                                       Scan all sources, update structure
   search <query>                             Test search from CLI
+  check-email [query]                        Check Gmail inbox
   status                                     Show connection status
   setup                                      Register MCP server in ~/.claude.json
   deauth <source>                            Remove credentials
