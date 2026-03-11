@@ -1,15 +1,15 @@
 {
-  "name": "gated-info",
+  "name": "gated-docs",
   "version": "1.0.0",
-  "description": "MCP server for accessing auth-gated sources (Google Drive, Notion, Slack) from Claude Code",
+  "description": "Local tool for accessing auth-gated sources (Google Drive, Notion, Slack) from Claude Code",
   "type": "module",
   "bin": {
-    "gated-info": "./bin/gated-info.ts"
+    "gated-docs": "./bin/gated-docs.ts"
   },
   "scripts": {
     "dev": "node --experimental-strip-types bin/mcp-server.ts",
     "build": "tsc",
-    "postinstall": "echo 'Run: gated-info setup'"
+    "postinstall": "echo 'Run: gated-docs setup'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

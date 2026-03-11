@@ -224,7 +224,7 @@ function getSendAuth() {
     }
   }
 
-  throw new Error('No send credentials. Run: gated-info auth gmail --send');
+  throw new Error('No send credentials. Run: gated-docs auth gmail --send');
 }
 
 /**

@@ -5,7 +5,7 @@
 import { execSync } from 'node:child_process';
 import { platform } from 'node:os';
 
-const SERVICE_PREFIX = 'gated-info';
+const SERVICE_PREFIX = 'gated-docs';
 
 function isMac(): boolean {
   return platform() === 'darwin';

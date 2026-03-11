@@ -1,6 +1,6 @@
 // ── Source types ──────────────────────────────────────────
 
-export type SourceType = 'google' | 'notion' | 'slack' | 'telegram' | 'cloudflare';
+export type SourceType = 'google' | 'notion' | 'slack' | 'telegram' | 'cloudflare' | 'gitlab';
 
 export interface SourceConfig {
   enabled: boolean;
@@ -12,6 +12,7 @@ export interface Config {
   scan_interval_hours: number;
   bigquery_project?: string; // override project for BQ queries (when SA is in different project)
   google_impersonate?: string; // email to impersonate via Domain-Wide Delegation (e.g. vladimir@skillset.ae)
+  gitlab_url?: string; // GitLab instance URL (e.g. https://gitlab.example.com), defaults to https://gitlab.com
 }
 
 // ── Structure (scan output) ──────────────────────────────

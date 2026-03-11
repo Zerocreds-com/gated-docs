@@ -107,9 +107,24 @@ export async function scan(): Promise<Structure> {
     }
   }
 
+  // GitLab
+  if (config.sources.gitlab?.enabled) {
+    if (hasCredential('gitlab', 'default')) {
+      try {
+        const { scanGitLab } = await import('./connectors/gitlab.ts');
+        const docs = await scanGitLab();
+        allDocs.push(...docs);
+        process.stderr.write(`[scan] GitLab: ${docs.length} resources\n`);
+      } catch (e: any) {
+        errors.push(`GitLab: ${e.message}`);
+        process.stderr.write(`[scan] GitLab error: ${e.message}\n`);
+      }
+    }
+  }
+
   // Build stats
   const stats: Structure['stats'] = {} as any;
-  for (const source of ['google', 'notion', 'slack', 'telegram', 'cloudflare'] as SourceType[]) {
+  for (const source of ['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab'] as SourceType[]) {
     const sourceDocs = allDocs.filter(d => d.source === source);
     if (sourceDocs.length === 0) continue;
 

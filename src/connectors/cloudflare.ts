@@ -11,7 +11,7 @@ const CF_API = 'https://api.cloudflare.com/client/v4';
 
 function getToken(): string {
   const token = getCredential('cloudflare', 'default');
-  if (!token) throw new Error('Cloudflare not configured. Run: gated-info auth cloudflare --token <api-token>');
+  if (!token) throw new Error('Cloudflare not configured. Run: gated-docs auth cloudflare --token <api-token>');
   return token;
 }
 
@@ -471,7 +471,7 @@ export async function runD1Query(databaseNameOrId: string, sql: string): Promise
     if (doc) {
       dbId = doc.id.replace('d1:', '');
     } else {
-      throw new Error(`D1 database "${databaseNameOrId}" not found. Run: gated-info scan`);
+      throw new Error(`D1 database "${databaseNameOrId}" not found. Run: gated-docs scan`);
     }
   }
 

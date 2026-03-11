@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gated-info — Google Setup Guide</title>
+<title>gated-docs — Google Setup Guide</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -193,7 +193,7 @@
 </head>
 <body>
 
-<h1>gated-info &mdash; Google Setup Guide</h1>
+<h1>gated-docs &mdash; Google Setup Guide</h1>
 <p style="color:var(--text-dim)">One service account &mdash; access to Drive, Sheets, Docs, BigQuery, Calendar.<br>Gmail needs OAuth2 (separate section below).</p>
 
 <div class="toc">
@@ -203,7 +203,7 @@
     <li><a href="#step-1">Create Service Account</a></li>
     <li><a href="#step-2">Enable APIs</a></li>
     <li><a href="#step-3">Grant Access</a></li>
-    <li><a href="#step-4">Connect to gated-info</a></li>
+    <li><a href="#step-4">Connect to gated-docs</a></li>
   </ol>
 </div>
 
@@ -250,23 +250,23 @@
   <li>Make sure your project is selected in the top dropdown</li>
   <li>Click <strong>"+ Create Service Account"</strong>
     <ul>
-      <li>Name: <code>gated-info</code> (or anything)</li>
+      <li>Name: <code>gated-docs</code> (or anything)</li>
       <li>ID auto-fills (becomes the email)</li>
       <li>Click <strong>Create and Continue</strong></li>
       <li>"Grant access to project" &mdash; skip for now, click <strong>Done</strong></li>
     </ul>
   </li>
-  <li>You'll see the SA with email like: <code>gated-info@your-project-id.iam.gserviceaccount.com</code></li>
+  <li>You'll see the SA with email like: <code>gated-docs@your-project-id.iam.gserviceaccount.com</code></li>
   <li>Click on it &rarr; <strong>Keys</strong> tab &rarr; <strong>Add Key</strong> &rarr; <strong>Create new key</strong> &rarr; <strong>JSON</strong> &rarr; <strong>Create</strong></li>
   <li>A <code>.json</code> file downloads &mdash; <strong>this is your key</strong>. Keep it safe.</li>
 </ol>
 
 <h4>Option B: Via gcloud CLI</h4>
 
-<div class="cmd"><span>gcloud iam service-accounts create gated-info --display-name="gated-info MCP"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud iam service-accounts create gated-docs --display-name="gated-docs MCP"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p>Download the key (replace <code>YOUR_PROJECT_ID</code>):</p>
-<div class="cmd"><span>gcloud iam service-accounts keys create ~/Downloads/gated-info-key.json --iam-account=gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud iam service-accounts keys create ~/Downloads/gated-docs-key.json --iam-account=gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p style="color:var(--text-dim)">Don't have gcloud? Option A does everything. If you want it: <a href="https://cloud.google.com/sdk/docs/install" target="_blank">Install guide</a>.</p>
 
@@ -308,15 +308,15 @@
 <p>Share folders or files with the SA email:</p>
 <ol>
   <li>In Google Drive, right-click folder &rarr; <strong>Share</strong></li>
-  <li>Paste: <code>gated-info@YOUR_PROJECT.iam.gserviceaccount.com</code></li>
+  <li>Paste: <code>gated-docs@YOUR_PROJECT.iam.gserviceaccount.com</code></li>
   <li>Set to <strong>Viewer</strong> (read-only)</li>
 </ol>
 <div class="callout tip"><strong>Pro tip:</strong> Share ONE top-level folder &rarr; everything inside becomes accessible.</div>
 
 <h3>BigQuery</h3>
 <p>Grant the SA access to query data:</p>
-<div class="cmd"><span>gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
-<div class="cmd"><span>gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-info@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <p style="color:var(--text-dim)">Or via Console: <a href="https://console.cloud.google.com/iam-admin/iam" target="_blank">IAM</a> &rarr; find the SA &rarr; Edit &rarr; Add roles.</p>
 
@@ -328,12 +328,12 @@
   <li>Download <code>client_secret_xxx.json</code></li>
   <li>Set <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank">OAuth consent screen</a> to <strong>Production</strong> (avoids 7-day token expiry)</li>
 </ol>
-<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth gmail --client-secret ~/Downloads/client_secret.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-docs.ts auth gmail --client-secret ~/Downloads/client_secret.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 <p style="color:var(--text-dim)">Opens browser &rarr; log in &rarr; authorize &rarr; refresh token saved to Keychain. This grants <code>gmail.readonly</code> scope.</p>
 
 <h4>Sending emails</h4>
 <p>Requires a separate token with <code>gmail.send</code> scope (reuses the same OAuth Client ID):</p>
-<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth gmail --send</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-docs.ts auth gmail --send</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 <p style="color:var(--text-dim)">Subject and body are RFC 2047/base64 encoded &mdash; non-ASCII characters (Cyrillic, emoji, etc.) are fully supported.</p>
 
 <h3>Google Calendar</h3>
@@ -345,10 +345,10 @@
 <hr>
 
 <!-- ======== STEP 4 ======== -->
-<h2 id="step-4">Step 4: Connect to gated-info</h2>
+<h2 id="step-4">Step 4: Connect to gated-docs</h2>
 
-<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts auth google --service-account ~/Downloads/gated-info-key.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
-<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts scan</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-docs.ts auth google --service-account ~/Downloads/gated-docs-key.json</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-docs.ts scan</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <div class="callout tip"><strong>Done.</strong> You can delete the key file &mdash; it's now stored in macOS Keychain.</div>
 
@@ -430,7 +430,7 @@
 </ul>
 
 <p>After enabling, run:</p>
-<div class="cmd"><span>node --experimental-strip-types bin/gated-info.ts scan</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
+<div class="cmd"><span>node --experimental-strip-types bin/gated-docs.ts scan</span><button class="copy-btn" onclick="copyCmd(this)">Copy</button></div>
 
 <hr>
 
@@ -446,7 +446,7 @@
 
 <div class="callout err">
   <strong>"401 Unauthorized"</strong> &mdash; Credential issue. Re-run:<br>
-  <code>gated-info auth google --service-account key.json</code>
+  <code>gated-docs auth google --service-account key.json</code>
 </div>
 
 <div class="callout warn">
@@ -466,7 +466,7 @@
 
 <hr>
 <p style="color:var(--text-dim);font-size:0.85rem;text-align:center;margin-top:32px">
-  gated-info &mdash; MCP server for auth-gated sources. Credentials in macOS Keychain, not on disk.
+  gated-docs &mdash; MCP server for auth-gated sources. Credentials in macOS Keychain, not on disk.
 </p>
 
 <script>

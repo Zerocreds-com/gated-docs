@@ -1,5 +1,5 @@
 /**
- * gated-info MCP server — stdio transport.
+ * gated-docs MCP server — stdio transport.
  * Provides search and read tools for auth-gated sources.
  * Tool descriptions are dynamically generated from structure.json.
  */
@@ -16,12 +16,12 @@ let structure = loadStructure();
 
 // Auto-scan in background if stale — don't block server startup
 if (!structure || isStructureStale(config)) {
-  process.stderr.write('[gated-info] Structure stale, will scan in background...\n');
+  process.stderr.write('[gated-docs] Structure stale, will scan in background...\n');
   scan().then(s => {
     structure = s;
-    process.stderr.write(`[gated-info] Background scan complete: ${s.docs.length} docs\n`);
+    process.stderr.write(`[gated-docs] Background scan complete: ${s.docs.length} docs\n`);
   }).catch(e => {
-    process.stderr.write(`[gated-info] Background scan failed: ${e.message}\n`);
+    process.stderr.write(`[gated-docs] Background scan failed: ${e.message}\n`);
   });
 }
 
@@ -30,10 +30,10 @@ const searchDesc = structure?.mcp_description
   || generateDescription([], {} as any);
 const readDesc = structure
   ? generateReadDescription(structure.docs)
-  : 'Read a document by ID from connected sources. Run "gated-info scan" first.';
+  : 'Read a document by ID from connected sources. Run "gated-docs scan" first.';
 
 const server = new McpServer({
-  name: 'gated-info',
+  name: 'gated-docs',
   version: '1.0.0',
 });
 
@@ -44,7 +44,7 @@ server.tool(
   searchDesc,
   {
     query: z.string().describe('Search query (natural language or keywords)'),
-    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare']).optional()
+    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab']).optional()
       .describe('Filter to specific source'),
     limit: z.number().optional()
       .describe('Max results (default: 10)'),
@@ -77,6 +77,10 @@ server.tool(
         } else if (src === 'cloudflare') {
           const { searchCloudflare } = await import('../connectors/cloudflare.ts');
           const r = await searchCloudflare(query, maxResults);
+          results.push(...r);
+        } else if (src === 'gitlab') {
+          const { searchGitLab } = await import('../connectors/gitlab.ts');
+          const r = await searchGitLab(query, maxResults);
           results.push(...r);
         }
       } catch (e: any) {
@@ -122,16 +126,18 @@ server.tool(
   readDesc,
   {
     id: z.string().describe('Document/page/channel ID'),
-    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare'])
+    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab'])
       .describe('Which source this document belongs to'),
+    range: z.string().optional()
+      .describe('Sheet range in A1 notation for Google Sheets (e.g. "\'Sheet1\'" for full sheet, "\'Sheet1\'!A1:E100" for specific range). Without range, shows preview with row/column counts.'),
   },
-  async ({ id, source }) => {
+  async ({ id, source, range }) => {
     try {
       let content: { name: string; content: string; url?: string };
 
       if (source === 'google') {
         const { readGoogleDoc } = await import('../connectors/google.ts');
-        content = await readGoogleDoc(id);
+        content = await readGoogleDoc(id, range);
       } else if (source === 'notion') {
         const { readNotionPage } = await import('../connectors/notion.ts');
         content = await readNotionPage(id);
@@ -144,6 +150,9 @@ server.tool(
       } else if (source === 'cloudflare') {
         const { readCloudflareResource } = await import('../connectors/cloudflare.ts');
         content = await readCloudflareResource(id);
+      } else if (source === 'gitlab') {
+        const { readGitLabResource } = await import('../connectors/gitlab.ts');
+        content = await readGitLabResource(id);
       } else {
         return { content: [{ type: 'text' as const, text: `Unknown source: ${source}` }] };
       }
@@ -191,7 +200,7 @@ server.tool(
   {},
   async () => {
     if (!structure) {
-      return { content: [{ type: 'text' as const, text: 'No scan data. Run: gated-info scan' }] };
+      return { content: [{ type: 'text' as const, text: 'No scan data. Run: gated-docs scan' }] };
     }
 
     const lines: string[] = [];
@@ -392,6 +401,7 @@ function getEnabledSources(): SourceType[] {
   if (config.sources.slack?.enabled) sources.push('slack');
   if (config.sources.telegram?.enabled) sources.push('telegram');
   if (config.sources.cloudflare?.enabled) sources.push('cloudflare');
+  if (config.sources.gitlab?.enabled) sources.push('gitlab');
   return sources;
 }
 
@@ -435,4 +445,4 @@ function searchStructure(query: string, source?: SourceType, limit = 10) {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-process.stderr.write(`[gated-info] MCP server started (${structure?.docs.length || 0} docs indexed)\n`);
+process.stderr.write(`[gated-docs] MCP server started (${structure?.docs.length || 0} docs indexed)\n`);

@@ -10,7 +10,7 @@ export function generateDescription(
   stats: Structure['stats']
 ): string {
   const parts: string[] = [];
-  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram, Cloudflare).');
+  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram, Cloudflare, GitLab).');
 
   const sourceDescriptions: string[] = [];
 
@@ -67,8 +67,15 @@ export function generateDescription(
     sourceDescriptions.push(`Cloudflare: ${c.count} resources (${typeParts})`);
   }
 
+  // GitLab
+  if (stats.gitlab) {
+    const gl = stats.gitlab;
+    const typeParts = Object.entries(gl.types).map(([t, n]) => `${n} ${t}s`).join(', ');
+    sourceDescriptions.push(`GitLab: ${gl.count} resources (${typeParts})`);
+  }
+
   if (sourceDescriptions.length === 0) {
-    parts.push('No sources connected yet. Run: gated-info auth google --service-account <key.json>');
+    parts.push('No sources connected yet. Run: gated-docs auth google --service-account <key.json>');
   } else {
     parts.push('Connected sources:');
     for (const desc of sourceDescriptions) {
@@ -179,6 +186,26 @@ export function generateDescription(
     const r2 = cfDocs.filter(d => d.type === 'r2_bucket');
     if (r2.length) {
       parts.push(`  R2: ${r2.map(b => b.name).join(', ')}`);
+    }
+  }
+
+  // GitLab details — projects with open MR counts
+  const glDocs = docs.filter(d => d.source === 'gitlab');
+  if (glDocs.length > 0) {
+    parts.push('');
+    parts.push('GitLab (use search/read_document for MRs, issues, project details):');
+    const projects = glDocs.filter(d => d.type === 'project');
+    const mrs = glDocs.filter(d => d.type === 'merge_request');
+    const issues = glDocs.filter(d => d.type === 'issue');
+
+    for (const p of projects) {
+      const mrCount = mrs.filter(m => m.parent === p.name).length;
+      const issueCount = issues.filter(i => i.parent === p.name).length;
+      const extra = [
+        mrCount ? `${mrCount} open MRs` : '',
+        issueCount ? `${issueCount} open issues` : '',
+      ].filter(Boolean).join(', ');
+      parts.push(`  ${p.name}${extra ? ` (${extra})` : ''}`);
     }
   }
 

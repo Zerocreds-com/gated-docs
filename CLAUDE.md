@@ -1,6 +1,6 @@
-# gated-info
+# gated-docs
 
-MCP server for accessing auth-gated sources from Claude Code. Credentials in macOS Keychain, stdio transport (no network exposure).
+Local tool for accessing auth-gated sources from Claude Code. Credentials in macOS Keychain, stdio transport (no network exposure).
 
 ## Stack
 
@@ -11,17 +11,18 @@ MCP server for accessing auth-gated sources from Claude Code. Credentials in mac
 - `@notionhq/client` — Notion API
 - `@slack/web-api` — Slack API
 - Cloudflare API v4 — raw fetch, no SDK dependency
+- GitLab REST API v4 — raw fetch, no SDK dependency (supports self-hosted instances)
 - macOS Keychain (`security` CLI) for credential storage
 
 ## Structure
 
 ```
 bin/
-  gated-info.ts      — CLI (auth, scan, search, status, setup, deauth)
+  gated-docs.ts      — CLI (auth, scan, search, status, setup, deauth)
   mcp-server.ts      — MCP server entry point (stdio)
 src/
   types.ts           — Shared types (SourceType, Config, Structure, etc.)
-  config.ts          — ~/.config/gated-info/ config + structure.json
+  config.ts          — ~/.config/gated-docs/ config + structure.json
   keychain.ts        — macOS Keychain read/write (base64 for JSON creds)
   scanner.ts         — Scans all enabled sources → structure.json
   description.ts     — Dynamic MCP tool descriptions from scan data
@@ -32,19 +33,20 @@ src/
     slack.ts         — Slack (scan channels, search messages, read history)
     telegram.ts      — Telegram (scan dialogs, search messages, read chat)
     cloudflare.ts    — Cloudflare (zones, DNS, Workers, Pages, D1, KV, R2)
+    gitlab.ts        — GitLab (projects, merge requests, issues — self-hosted or gitlab.com)
     gmail.ts         — Gmail (list/read/send emails via OAuth2 refresh tokens)
   mcp/
     server.ts        — MCP tools: search, read_document, list_sources, bigquery_query, bigquery_explore, d1_query, check_email, send_email
 docs/
-  google-setup.html  — Setup guide (GitHub Pages: kobzevvv.github.io/gated-info)
+  google-setup.html  — Setup guide (GitHub Pages: kobzevvv.github.io/gated-docs)
   google-setup.md    — Same guide in markdown
 ```
 
 ## Config paths
 
-- Config: `~/.config/gated-info/config.json`
-- Structure: `~/.config/gated-info/structure.json`
-- Credentials: macOS Keychain (service prefix `gated-info-{source}`)
+- Config: `~/.config/gated-docs/config.json`
+- Structure: `~/.config/gated-docs/structure.json`
+- Credentials: macOS Keychain (service prefix `gated-docs-{source}`)
 
 ## Key concepts
 
@@ -57,23 +59,27 @@ docs/
 - BigQuery uses SA + Domain-Wide Delegation (impersonates google_impersonate email) for permanent access
 - Gmail uses two OAuth2 tokens for least privilege: gmail/oauth (readonly) + gmail/oauth-send (send) — both permanent, stored as base64 in Keychain
 - Cloudflare uses API Token with read-only permissions (raw fetch, no SDK)
+- GitLab uses Personal Access Token (read_api, read_repository scopes), raw fetch against REST API v4
+- GitLab supports self-hosted instances via `gitlab_url` config field (defaults to https://gitlab.com)
+- GitLab resource IDs use prefixed format: `project:123`, `mr:123:5`, `issue:123:10`
 
 ## Commands
 
 ```bash
-node --experimental-strip-types bin/gated-info.ts setup                           # register MCP in ~/.claude.json
-node --experimental-strip-types bin/gated-info.ts auth google --service-account <key.json>
-node --experimental-strip-types bin/gated-info.ts auth notion --token <ntn_xxx>
-node --experimental-strip-types bin/gated-info.ts auth slack --token <xoxb-xxx>
-node --experimental-strip-types bin/gated-info.ts auth telegram --api-id <N> --api-hash <hash>
-node --experimental-strip-types bin/gated-info.ts auth cloudflare --token <cf-token>
-node --experimental-strip-types bin/gated-info.ts auth gmail --client-secret-file <client_secret.json>  # Gmail read (OAuth2)
-node --experimental-strip-types bin/gated-info.ts auth gmail --send                                    # Gmail send (reuses client creds)
-node --experimental-strip-types bin/gated-info.ts impersonate <email>                                   # DWD impersonation (BigQuery/Gmail)
-node --experimental-strip-types bin/gated-info.ts scan                             # rebuild structure.json
-node --experimental-strip-types bin/gated-info.ts status                           # show connections
-node --experimental-strip-types bin/gated-info.ts search "query"                   # test search from CLI
-node --experimental-strip-types bin/gated-info.ts deauth <source>                  # remove credentials
+node --experimental-strip-types bin/gated-docs.ts setup                           # register MCP in ~/.claude.json
+node --experimental-strip-types bin/gated-docs.ts auth google --service-account <key.json>
+node --experimental-strip-types bin/gated-docs.ts auth notion --token <ntn_xxx>
+node --experimental-strip-types bin/gated-docs.ts auth slack --token <xoxb-xxx>
+node --experimental-strip-types bin/gated-docs.ts auth telegram --api-id <N> --api-hash <hash>
+node --experimental-strip-types bin/gated-docs.ts auth cloudflare --token <cf-token>
+node --experimental-strip-types bin/gated-docs.ts auth gitlab --token <glpat-xxx> [--url https://gitlab.example.com]
+node --experimental-strip-types bin/gated-docs.ts auth gmail --client-secret-file <client_secret.json>  # Gmail read (OAuth2)
+node --experimental-strip-types bin/gated-docs.ts auth gmail --send                                    # Gmail send (reuses client creds)
+node --experimental-strip-types bin/gated-docs.ts impersonate <email>                                   # DWD impersonation (BigQuery/Gmail)
+node --experimental-strip-types bin/gated-docs.ts scan                             # rebuild structure.json
+node --experimental-strip-types bin/gated-docs.ts status                           # show connections
+node --experimental-strip-types bin/gated-docs.ts search "query"                   # test search from CLI
+node --experimental-strip-types bin/gated-docs.ts deauth <source>                  # remove credentials
 ```
 
 ## MCP tools (8)
@@ -94,9 +100,13 @@ node --experimental-strip-types bin/gated-info.ts deauth <source>               
 
 Cloudflare resources use prefixed IDs: `zone:abc123`, `worker:my-worker`, `pages:my-site`, `d1:uuid`, `kv:ns-id`, `r2:bucket-name`. The prefix tells `read_document` which API to call.
 
+## GitLab resource IDs
+
+GitLab resources use prefixed IDs: `project:123`, `mr:123:5` (project_id:iid), `issue:123:10` (project_id:iid). Read MR includes full diff and comments.
+
 ## Current auth
 
-- Google Drive/Sheets/Docs: SA (gated-info@gated-info-mcp.iam.gserviceaccount.com)
+- Google Drive/Sheets/Docs: SA (gated-docs@gated-docs-mcp.iam.gserviceaccount.com)
 - BigQuery: SA + DWD impersonating vladimir@skillset.ae
 - Gmail: OAuth2 refresh token (permanent)
 - Cloudflare: API token

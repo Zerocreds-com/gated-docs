@@ -7,7 +7,7 @@ import type { SearchResult, DocContent, StructureDoc } from '../types.ts';
 
 function getToken(): string {
   const token = getCredential('notion', 'default');
-  if (!token) throw new Error('Notion not configured. Run: gated-info auth notion --token <your-api-key>');
+  if (!token) throw new Error('Notion not configured. Run: gated-docs auth notion --token <your-api-key>');
   return token;
 }
 

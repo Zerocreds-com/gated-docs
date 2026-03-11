@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import type { Config, Structure } from './types.ts';
 
 const HOME = homedir();
-export const CONFIG_DIR = join(HOME, '.config', 'gated-info');
+export const CONFIG_DIR = join(HOME, '.config', 'gated-docs');
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 export const STRUCTURE_PATH = join(CONFIG_DIR, 'structure.json');
 

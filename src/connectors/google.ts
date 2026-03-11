@@ -14,12 +14,12 @@ let cachedWriteAuth: ReturnType<typeof google.auth.GoogleAuth> | null = null;
 function getAuth(): ReturnType<typeof google.auth.GoogleAuth> {
   const config = loadConfig();
   const account = config.sources.google?.account;
-  if (!account) throw new Error('Google not configured. Run: gated-info auth google --service-account <key.json>');
+  if (!account) throw new Error('Google not configured. Run: gated-docs auth google --service-account <key.json>');
 
   if (cachedAuth && cachedAccount === account) return cachedAuth;
 
   const credentials = getServiceAccountCredentials(account);
-  if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}. Run: gated-info auth google --service-account <key.json>`);
+  if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}. Run: gated-docs auth google --service-account <key.json>`);
 
   cachedAuth = new google.auth.GoogleAuth({
     credentials: credentials as any,
@@ -38,7 +38,7 @@ function getWriteAuth(): ReturnType<typeof google.auth.GoogleAuth> {
 
   const config = loadConfig();
   const account = config.sources.google?.account;
-  if (!account) throw new Error('Google not configured. Run: gated-info auth google --service-account <key.json>');
+  if (!account) throw new Error('Google not configured. Run: gated-docs auth google --service-account <key.json>');
 
   const credentials = getServiceAccountCredentials(account);
   if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}.`);
@@ -197,7 +197,7 @@ export async function searchGoogle(query: string, limit: number = 10): Promise<S
 
 // ── Read document content ────────────────────────────────
 
-export async function readGoogleDoc(docId: string): Promise<DocContent> {
+export async function readGoogleDoc(docId: string, range?: string): Promise<DocContent> {
   const drive = getDrive();
 
   // Get file metadata
@@ -213,7 +213,7 @@ export async function readGoogleDoc(docId: string): Promise<DocContent> {
   let content: string;
 
   if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-    content = await readSpreadsheetContent(docId);
+    content = await readSpreadsheetContent(docId, range);
   } else if (mimeType === 'application/vnd.google-apps.document') {
     content = await readDocumentContent(docId);
   } else {
@@ -235,10 +235,29 @@ export async function readGoogleDoc(docId: string): Promise<DocContent> {
   };
 }
 
-async function readSpreadsheetContent(spreadsheetId: string): Promise<string> {
+async function readSpreadsheetContent(spreadsheetId: string, range?: string): Promise<string> {
   const sheets = getSheets();
 
-  // Get all sheet names
+  // If a specific range is provided, fetch it directly without preview limits
+  if (range) {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+    });
+    const rows = res.data.values || [];
+    if (rows.length === 0) return '(empty range)';
+
+    const nonEmpty = rows.filter(r => r.some(c => c && String(c).trim()));
+    const maxCols = Math.max(...rows.map(r => r.length));
+    const parts: string[] = [];
+    parts.push(`## ${range} (${nonEmpty.length} non-empty rows × ${maxCols} cols)\n`);
+    for (const row of rows) {
+      parts.push(row.join('\t'));
+    }
+    return parts.join('\n');
+  }
+
+  // Default: preview mode — show metadata + first 50 rows per sheet
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties.title',
@@ -257,7 +276,9 @@ async function readSpreadsheetContent(spreadsheetId: string): Promise<string> {
       const rows = res.data.values || [];
       if (rows.length === 0) continue;
 
-      parts.push(`## Sheet: ${sheetName}`);
+      const nonEmpty = rows.filter(r => r.some(c => c && String(c).trim()));
+      const maxCols = Math.max(...rows.map(r => r.length));
+      parts.push(`## Sheet: ${sheetName} (${nonEmpty.length} non-empty rows × ${maxCols} cols)`);
 
       // Header + first 50 rows
       const display = rows.slice(0, 51);
@@ -266,7 +287,7 @@ async function readSpreadsheetContent(spreadsheetId: string): Promise<string> {
       }
 
       if (rows.length > 51) {
-        parts.push(`... (${rows.length - 51} more rows)`);
+        parts.push(`... (${rows.length - 51} more rows — use range "'${sheetName}'" to fetch all)`);
       }
 
       parts.push('');

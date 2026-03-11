@@ -7,7 +7,7 @@ import type { SearchResult, DocContent, StructureDoc } from '../types.ts';
 
 function getToken(): string {
   const token = getCredential('slack', 'default');
-  if (!token) throw new Error('Slack not configured. Run: gated-info auth slack --token <xoxb-token>');
+  if (!token) throw new Error('Slack not configured. Run: gated-docs auth slack --token <xoxb-token>');
   return token;
 }
 

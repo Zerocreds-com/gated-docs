@@ -1,7 +1,20 @@
 #!/usr/bin/env node --experimental-strip-types
 /**
- * gated-info CLI — auth, scan, search, status, setup.
+ * gated-docs CLI — auth, scan, search, status, setup.
  */
+
+// Check Node.js version before anything else
+const [major] = process.versions.node.split('.').map(Number);
+if (major < 22) {
+  console.error(`\x1b[31m[gated-docs] Node.js 22+ required (you have ${process.versions.node})\x1b[0m`);
+  console.error(`\nInstall the latest version:`);
+  console.error(`  brew install node        # Homebrew (macOS)`);
+  console.error(`  nvm install 22           # nvm`);
+  console.error(`  fnm install 22           # fnm`);
+  console.error(`  https://nodejs.org       # manual download`);
+  process.exit(1);
+}
+
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadConfig, saveConfig, loadStructure, CONFIG_PATH, STRUCTURE_PATH } from '../src/config.ts';
@@ -19,7 +32,7 @@ const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 const NC = '\x1b[0m';
 
-function info(msg: string) { console.log(`${CYAN}[gated-info]${NC} ${msg}`); }
+function info(msg: string) { console.log(`${CYAN}[gated-docs]${NC} ${msg}`); }
 function ok(msg: string) { console.log(`${GREEN}  OK${NC} ${msg}`); }
 function fail(msg: string) { console.log(`${RED}  ERR${NC} ${msg}`); }
 function warn(msg: string) { console.log(`${YELLOW}  !${NC} ${msg}`); }
@@ -63,7 +76,7 @@ async function cmdAuth() {
   if (source === 'google') {
     const saFlag = args.indexOf('--service-account');
     if (saFlag === -1 || !args[saFlag + 1]) {
-      fail('Usage: gated-info auth google --service-account <path-to-key.json>');
+      fail('Usage: gated-docs auth google --service-account <path-to-key.json>');
       console.log(`\n${DIM}How to get a service account key:`);
       console.log('  1. Go to https://console.cloud.google.com/iam-admin/serviceaccounts');
       console.log('  2. Select your project (or create one)');
@@ -71,7 +84,7 @@ async function cmdAuth() {
       console.log('  4. Go to "Keys" tab → "Add Key" → "Create new key" → JSON');
       console.log('  5. Download the JSON file');
       console.log('  6. Share your Google Drive folders with the service account email');
-      console.log(`  7. Run: gated-info auth google --service-account ./downloaded-key.json${NC}`);
+      console.log(`  7. Run: gated-docs auth google --service-account ./downloaded-key.json${NC}`);
       process.exit(1);
     }
 
@@ -118,7 +131,7 @@ async function cmdAuth() {
       const structure = await scan();
       ok(`Found ${structure.docs.length} documents`);
     } catch (e: any) {
-      warn(`Scan: ${e.message} (you can re-run: gated-info scan)`);
+      warn(`Scan: ${e.message} (you can re-run: gated-docs scan)`);
     }
 
     console.log(`\n${BOLD}Next steps:${NC}`);
@@ -133,14 +146,14 @@ async function cmdAuth() {
   } else if (source === 'notion') {
     const tokenFlag = args.indexOf('--token');
     if (tokenFlag === -1 || !args[tokenFlag + 1]) {
-      fail('Usage: gated-info auth notion --token <your-notion-api-key>');
+      fail('Usage: gated-docs auth notion --token <your-notion-api-key>');
       console.log(`\n${DIM}How to get a Notion API key:`);
       console.log('  1. Go to https://www.notion.so/my-integrations');
       console.log('  2. Click "New integration"');
-      console.log('  3. Give it a name (e.g., "gated-info")');
+      console.log('  3. Give it a name (e.g., "gated-docs")');
       console.log('  4. Copy the "Internal Integration Token" (starts with ntn_)');
       console.log('  5. In Notion, share databases/pages with your integration');
-      console.log(`  6. Run: gated-info auth notion --token ntn_xxxx${NC}`);
+      console.log(`  6. Run: gated-docs auth notion --token ntn_xxxx${NC}`);
       process.exit(1);
     }
 
@@ -158,7 +171,7 @@ async function cmdAuth() {
   } else if (source === 'slack') {
     const tokenFlag = args.indexOf('--token');
     if (tokenFlag === -1 || !args[tokenFlag + 1]) {
-      fail('Usage: gated-info auth slack --token <xoxb-or-xoxp-token>');
+      fail('Usage: gated-docs auth slack --token <xoxb-or-xoxp-token>');
       console.log(`\n${DIM}How to get a Slack token:`);
       console.log('  1. Go to https://api.slack.com/apps');
       console.log('  2. Create an app → "From scratch"');
@@ -228,7 +241,7 @@ async function cmdAuth() {
   } else if (source === 'cloudflare') {
     const tokenFlag = args.indexOf('--token');
     if (tokenFlag === -1 || !args[tokenFlag + 1]) {
-      fail('Usage: gated-info auth cloudflare --token <api-token>');
+      fail('Usage: gated-docs auth cloudflare --token <api-token>');
       console.log(`\n${DIM}How to get a Cloudflare API token:`);
       console.log('  1. Go to https://dash.cloudflare.com/profile/api-tokens');
       console.log('  2. Click "Create Token"');
@@ -237,7 +250,7 @@ async function cmdAuth() {
       console.log('     Zone: Zone, DNS');
       console.log('     Account: Workers Scripts, Pages, D1, Workers KV Storage, R2');
       console.log('  5. Zone Resources: Include All Zones');
-      console.log(`  6. Copy the token and run: gated-info auth cloudflare --token <token>${NC}`);
+      console.log(`  6. Copy the token and run: gated-docs auth cloudflare --token <token>${NC}`);
       process.exit(1);
     }
 
@@ -252,8 +265,40 @@ async function cmdAuth() {
 
     await autoScan();
 
+  } else if (source === 'gitlab') {
+    const tokenFlag = args.indexOf('--token');
+    if (tokenFlag === -1 || !args[tokenFlag + 1]) {
+      fail('Usage: gated-docs auth gitlab --token <personal-access-token> [--url https://gitlab.example.com]');
+      console.log(`\n${DIM}How to get a GitLab Personal Access Token:`);
+      console.log('  1. Go to your GitLab instance → User Settings → Access Tokens');
+      console.log('     (or /-/user_settings/personal_access_tokens)');
+      console.log('  2. Create a token with scopes: read_api, read_repository');
+      console.log('  3. Copy the token');
+      console.log(`  4. Run: gated-docs auth gitlab --token glpat-xxxx --url https://gitlab.example.com${NC}`);
+      process.exit(1);
+    }
+
+    const token = args[tokenFlag + 1];
+    storeCredential('gitlab', 'default', token);
+    ok('GitLab token stored in Keychain');
+
+    const config = loadConfig();
+    config.sources.gitlab = { enabled: true };
+
+    // --url flag for self-hosted instances
+    const urlFlag = args.indexOf('--url');
+    if (urlFlag !== -1 && args[urlFlag + 1]) {
+      config.gitlab_url = args[urlFlag + 1].replace(/\/+$/, '');
+      ok(`GitLab URL: ${config.gitlab_url}`);
+    }
+
+    saveConfig(config);
+    ok('Config updated');
+
+    await autoScan();
+
   } else {
-    fail('Usage: gated-info auth <google|notion|slack|telegram|cloudflare> [options]');
+    fail('Usage: gated-docs auth <google|notion|slack|telegram|cloudflare|gitlab> [options]');
   }
 }
 
@@ -304,14 +349,14 @@ async function authGmail() {
   }
 
   if (!clientId || !clientSecret) {
-    fail('Usage: gated-info auth gmail [--send] --client-secret-file <path/client_secret.json>');
-    console.log(`       gated-info auth gmail [--send] --client-id <ID> --client-secret <SECRET>`);
+    fail('Usage: gated-docs auth gmail [--send] --client-secret-file <path/client_secret.json>');
+    console.log(`       gated-docs auth gmail [--send] --client-id <ID> --client-secret <SECRET>`);
     console.log(`\n${DIM}How to get OAuth credentials:`);
     console.log('  1. Open https://console.cloud.google.com/apis/credentials');
     console.log('  2. Click "+ Create Credentials" → "OAuth client ID"');
     console.log('  3. Application type: "Desktop app"');
     console.log('  4. Download the JSON file');
-    console.log(`  5. Run: gated-info auth gmail --client-secret-file ~/Downloads/client_secret_xxx.json${NC}`);
+    console.log(`  5. Run: gated-docs auth gmail --client-secret-file ~/Downloads/client_secret_xxx.json${NC}`);
     if (isSend) console.log(`\nTip: if you already ran 'auth gmail' (read), just run 'auth gmail --send' — client creds will be reused.`);
     process.exit(1);
   }
@@ -390,9 +435,9 @@ async function authGmail() {
   }
 
   console.log(`\n${label} access is permanent — no token refresh needed.`);
-  console.log(`To revoke: ${CYAN}gated-info deauth gmail${NC}`);
+  console.log(`To revoke: ${CYAN}gated-docs deauth gmail${NC}`);
   if (!isSend && !getCredential('gmail', 'oauth-send')) {
-    console.log(`\nTo also enable sending: ${CYAN}gated-info auth gmail --send${NC} (reuses same client creds)`);
+    console.log(`\nTo also enable sending: ${CYAN}gated-docs auth gmail --send${NC} (reuses same client creds)`);
   }
   updateClaudeMdAuth();
 }
@@ -425,6 +470,10 @@ function updateClaudeMdAuth() {
     if (config.sources.slack?.enabled) lines.push('- Slack: bot token');
     if (config.sources.telegram?.enabled) lines.push('- Telegram: MTProto session');
     if (config.sources.cloudflare?.enabled) lines.push('- Cloudflare: API token');
+    if (config.sources.gitlab?.enabled) {
+      const url = config.gitlab_url || 'https://gitlab.com';
+      lines.push(`- GitLab: Personal Access Token (${url})`);
+    }
 
     const authBlock = `## Current auth\n\n${lines.join('\n')}`;
 
@@ -450,7 +499,7 @@ async function autoScan() {
     console.log(`\nRestart Claude Code to pick up the changes.`);
   } catch (e: any) {
     warn(`Scan failed: ${e.message}`);
-    console.log(`You can retry: ${CYAN}gated-info scan${NC}`);
+    console.log(`You can retry: ${CYAN}gated-docs scan${NC}`);
   }
   updateClaudeMdAuth();
 }
@@ -477,7 +526,7 @@ function cmdStatus() {
   const config = loadConfig();
   const structure = loadStructure();
 
-  console.log(`\n${BOLD}gated-info status${NC}\n`);
+  console.log(`\n${BOLD}gated-docs status${NC}\n`);
   console.log(`Config: ${DIM}${CONFIG_PATH}${NC}`);
   console.log(`Structure: ${DIM}${STRUCTURE_PATH}${NC}\n`);
 
@@ -536,6 +585,15 @@ function cmdStatus() {
     console.log(`  Cloudflare: ${DIM}not configured${NC}`);
   }
 
+  const gitlabCfg = config.sources.gitlab;
+  if (gitlabCfg?.enabled) {
+    const hasCreds = hasCredential('gitlab', 'default');
+    const url = config.gitlab_url || 'https://gitlab.com';
+    console.log(`  GitLab: ${hasCreds ? GREEN + 'connected' : RED + 'no credentials'}${NC} (${url})`);
+  } else {
+    console.log(`  GitLab: ${DIM}not configured${NC}`);
+  }
+
   // Structure
   if (structure) {
     console.log(`\n${BOLD}Last scan:${NC} ${structure.generated_at}`);
@@ -548,7 +606,7 @@ function cmdStatus() {
     console.log(`\n${BOLD}MCP description:${NC}`);
     console.log(structure.mcp_description.split('\n').map(l => `  ${l}`).join('\n'));
   } else {
-    console.log(`\n${YELLOW}No scan data yet.${NC} Run: gated-info scan`);
+    console.log(`\n${YELLOW}No scan data yet.${NC} Run: gated-docs scan`);
   }
   console.log('');
 }
@@ -558,7 +616,7 @@ function cmdStatus() {
 async function cmdSearch() {
   const query = args.slice(1).join(' ');
   if (!query) {
-    fail('Usage: gated-info search <query>');
+    fail('Usage: gated-docs search <query>');
     process.exit(1);
   }
 
@@ -602,6 +660,15 @@ async function cmdSearch() {
     }
   }
 
+  if (config.sources.gitlab?.enabled) {
+    try {
+      const { searchGitLab } = await import('../src/connectors/gitlab.ts');
+      results.push(...await searchGitLab(query, 5));
+    } catch (e: any) {
+      warn(`GitLab: ${e.message}`);
+    }
+  }
+
   if (results.length === 0) {
     console.log('No results found.');
     return;
@@ -622,7 +689,7 @@ async function cmdSetup() {
   const { execSync } = await import('node:child_process');
   const repoDir = resolve(import.meta.dirname!, '..');
 
-  info('Registering gated-info MCP server...');
+  info('Registering gated-docs MCP server...');
 
   const claudeJson = resolve(process.env.HOME || '', '.claude.json');
   let config: any = {};
@@ -632,7 +699,7 @@ async function cmdSetup() {
 
   if (!config.mcpServers) config.mcpServers = {};
 
-  config.mcpServers['gated-info'] = {
+  config.mcpServers['gated-docs'] = {
     type: 'stdio',
     command: 'node',
     args: ['--experimental-strip-types', `${repoDir}/bin/mcp-server.ts`],
@@ -644,8 +711,8 @@ async function cmdSetup() {
   ok('MCP server registered in ~/.claude.json');
 
   console.log(`\n${BOLD}Next steps:${NC}`);
-  console.log(`  1. Add credentials: ${CYAN}gated-info auth google --service-account <key.json>${NC}`);
-  console.log(`  2. Scan sources:    ${CYAN}gated-info scan${NC}`);
+  console.log(`  1. Add credentials: ${CYAN}gated-docs auth google --service-account <key.json>${NC}`);
+  console.log(`  2. Scan sources:    ${CYAN}gated-docs scan${NC}`);
   console.log(`  3. Restart Claude Code to activate MCP`);
   console.log('');
 }
@@ -694,7 +761,7 @@ async function cmdCheckEmail() {
 function cmdImpersonate() {
   const email = args[1];
   if (!email || !email.includes('@')) {
-    fail('Usage: gated-info impersonate <user@domain.com>');
+    fail('Usage: gated-docs impersonate <user@domain.com>');
     console.log(`\n${DIM}Sets Domain-Wide Delegation impersonation email.`);
     console.log('The SA will act on behalf of this user for Gmail and BigQuery.');
     console.log(`Requires DWD to be configured in Google Admin Console.${NC}`);
@@ -707,7 +774,7 @@ function cmdImpersonate() {
   ok(`Impersonation set: ${email}`);
   console.log(`\n${BOLD}Make sure DWD is configured:${NC}`);
   console.log(`  admin.google.com → Security → API controls → Domain-wide delegation`);
-  console.log(`  Client ID: ${CYAN}${getSaClientId(config) || '(run gated-info status to check)'}${NC}`);
+  console.log(`  Client ID: ${CYAN}${getSaClientId(config) || '(run gated-docs status to check)'}${NC}`);
   console.log(`  Scopes: gmail.readonly, bigquery.readonly`);
 }
 
@@ -723,7 +790,7 @@ function getSaClientId(config: ReturnType<typeof loadConfig>): string {
 function cmdDeauth() {
   const source = args[1];
   if (!source) {
-    fail('Usage: gated-info deauth <google|notion|slack|telegram|cloudflare|gmail>');
+    fail('Usage: gated-docs deauth <google|notion|slack|telegram|cloudflare|gitlab|gmail>');
     process.exit(1);
   }
 
@@ -744,6 +811,9 @@ function cmdDeauth() {
   } else if (source === 'cloudflare') {
     deleteCredential('cloudflare', 'default');
     config.sources.cloudflare = { enabled: false };
+  } else if (source === 'gitlab') {
+    deleteCredential('gitlab', 'default');
+    config.sources.gitlab = { enabled: false };
   } else if (source === 'gmail') {
     deleteCredential('gmail', 'oauth');
     deleteCredential('gmail', 'oauth-send');
@@ -758,7 +828,7 @@ function cmdDeauth() {
 
 function printHelp() {
   console.log(`
-${BOLD}gated-info${NC} — MCP server for auth-gated sources
+${BOLD}gated-docs${NC} — MCP server for auth-gated sources
 
 ${BOLD}Commands:${NC}
   auth google --service-account <key.json>   Connect Google Drive
@@ -768,6 +838,7 @@ ${BOLD}Commands:${NC}
   auth slack  --token <xoxb-xxx>             Connect Slack
   auth telegram                              Connect Telegram (Client API)
   auth cloudflare --token <cf-token>         Connect Cloudflare
+  auth gitlab --token <pat> [--url <url>]    Connect GitLab (self-hosted or gitlab.com)
   auth gmail --client-secret-file <json>     Connect Gmail read (OAuth2, permanent)
   auth gmail --send                          Connect Gmail send (reuses client creds)
   scan                                       Scan all sources, update structure
@@ -778,9 +849,9 @@ ${BOLD}Commands:${NC}
   deauth <source>                            Remove credentials
 
 ${BOLD}Quick start:${NC}
-  gated-info setup
-  gated-info auth google --service-account ~/Downloads/key.json
-  gated-info scan
+  gated-docs setup
+  gated-docs auth google --service-account ~/Downloads/key.json
+  gated-docs scan
 
 ${BOLD}How it works:${NC}
   Credentials stored in macOS Keychain (not on disk).

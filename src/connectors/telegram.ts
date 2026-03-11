@@ -39,7 +39,7 @@ async function getClient(): Promise<TelegramClient> {
   if (cachedClient?.connected) return cachedClient;
 
   const creds = getTelegramCreds();
-  if (!creds) throw new Error('Telegram not configured. Run: gated-info auth telegram');
+  if (!creds) throw new Error('Telegram not configured. Run: gated-docs auth telegram');
 
   const session = new StringSession(creds.session);
   const client = new TelegramClient(session, creds.apiId, creds.apiHash, {
