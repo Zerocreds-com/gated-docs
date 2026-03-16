@@ -1,13 +1,13 @@
 /**
  * Slack connector — searches messages and channels.
- * Uses Slack bot token stored in macOS Keychain.
+ * Uses Slack bot token stored in OS credential store.
  */
 import { getCredential } from '../keychain.ts';
 import type { SearchResult, DocContent, StructureDoc } from '../types.ts';
 
 function getToken(): string {
   const token = getCredential('slack', 'default');
-  if (!token) throw new Error('Slack not configured. Run: gated-docs auth slack --token <xoxb-token>');
+  if (!token) throw new Error('Slack not configured. Run: gated-knowledge auth slack --token <xoxb-token>');
   return token;
 }
 

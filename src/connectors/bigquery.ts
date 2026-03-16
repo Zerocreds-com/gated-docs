@@ -63,7 +63,7 @@ function getProjectId(): string {
   // ADC — try gcloud default project
   try {
     const { execSync } = require('node:child_process');
-    return execSync('gcloud config get-value project 2>/dev/null', { encoding: 'utf-8' }).trim();
+    return execSync('gcloud config get-value project', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   } catch {}
 
   return '';

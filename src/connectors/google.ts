@@ -1,61 +1,123 @@
 /**
  * Google Drive / Sheets / Docs connector.
- * Uses service account JSON stored in macOS Keychain.
+ * Supports Service Account and OAuth2 (multi-account).
  */
 import { google, type drive_v3, type sheets_v4 } from 'googleapis';
-import { getServiceAccountCredentials } from '../keychain.ts';
+import { getServiceAccountCredentials, getCredential } from '../keychain.ts';
 import { loadConfig } from '../config.ts';
 import type { SearchResult, DocContent, StructureDoc } from '../types.ts';
 
-let cachedAuth: ReturnType<typeof google.auth.GoogleAuth> | null = null;
-let cachedAccount: string | null = null;
-let cachedWriteAuth: ReturnType<typeof google.auth.GoogleAuth> | null = null;
+const authCache = new Map<string, any>();
 
-function getAuth(): ReturnType<typeof google.auth.GoogleAuth> {
-  const config = loadConfig();
-  const account = config.sources.google?.account;
-  if (!account) throw new Error('Google not configured. Run: gated-docs auth google --service-account <key.json>');
+const READ_SCOPES = [
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/documents.readonly',
+];
 
-  if (cachedAuth && cachedAccount === account) return cachedAuth;
+const WRITE_SCOPES = [
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive',
+];
 
-  const credentials = getServiceAccountCredentials(account);
-  if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}. Run: gated-docs auth google --service-account <key.json>`);
-
-  cachedAuth = new google.auth.GoogleAuth({
-    credentials: credentials as any,
-    scopes: [
-      'https://www.googleapis.com/auth/drive.readonly',
-      'https://www.googleapis.com/auth/spreadsheets.readonly',
-      'https://www.googleapis.com/auth/documents.readonly',
-    ],
-  });
-  cachedAccount = account;
-  return cachedAuth;
+/** Build OAuth2 auth from a base64-encoded token in keychain */
+function buildOAuth(keychainKey: string): any | null {
+  const token = getCredential('google', keychainKey);
+  if (!token) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
+    if (!decoded.client_id || !decoded.refresh_token) return null;
+    const oauth2 = new google.auth.OAuth2(decoded.client_id, decoded.client_secret);
+    oauth2.setCredentials({ refresh_token: decoded.refresh_token });
+    return oauth2;
+  } catch { return null; }
 }
 
-function getWriteAuth(): ReturnType<typeof google.auth.GoogleAuth> {
-  if (cachedWriteAuth) return cachedWriteAuth;
+/**
+ * Get auth for a specific account email, or default.
+ */
+function getAuthForAccount(email?: string): any {
+  const cacheKey = email || '_default';
+  if (authCache.has(cacheKey)) return authCache.get(cacheKey);
 
+  // Specific account requested
+  if (email) {
+    const auth = buildOAuth(`oauth-${email}`);
+    if (auth) { authCache.set(cacheKey, auth); return auth; }
+  }
+
+  // Default: try SA, then generic oauth
   const config = loadConfig();
   const account = config.sources.google?.account;
-  if (!account) throw new Error('Google not configured. Run: gated-docs auth google --service-account <key.json>');
 
-  const credentials = getServiceAccountCredentials(account);
-  if (!credentials) throw new Error(`Google credentials not found in keychain for ${account}.`);
+  if (account && account !== 'oauth') {
+    const credentials = getServiceAccountCredentials(account);
+    if (credentials && (credentials as any).client_email) {
+      const auth = new google.auth.GoogleAuth({ credentials: credentials as any, scopes: READ_SCOPES });
+      authCache.set(cacheKey, auth);
+      return auth;
+    }
+  }
 
-  cachedWriteAuth = new google.auth.GoogleAuth({
-    credentials: credentials as any,
-    scopes: [
-      'https://www.googleapis.com/auth/documents',
-      'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive',
-    ],
-  });
-  return cachedWriteAuth;
+  const auth = buildOAuth('oauth');
+  if (auth) { authCache.set(cacheKey, auth); return auth; }
+
+  throw new Error('Google not configured. Run: gated-knowledge auth google');
 }
 
-function getDrive(): drive_v3.Drive {
-  return google.drive({ version: 'v3', auth: getAuth() });
+/**
+ * Get all configured Google auth clients (for multi-account scan/search).
+ * Returns [{email, auth}] for each account.
+ */
+function getAllAuths(): Array<{ email: string; auth: any }> {
+  const config = loadConfig();
+  const results: Array<{ email: string; auth: any }> = [];
+  const seen = new Set<string>();
+
+  // Multi-account OAuth tokens
+  if (config.google_accounts?.length) {
+    for (const email of config.google_accounts) {
+      const auth = buildOAuth(`oauth-${email}`);
+      if (auth) {
+        results.push({ email, auth });
+        seen.add(email);
+      }
+    }
+  }
+
+  // SA fallback
+  const account = config.sources.google?.account;
+  if (account && account !== 'oauth' && !seen.has(account)) {
+    const credentials = getServiceAccountCredentials(account);
+    if (credentials && (credentials as any).client_email) {
+      const auth = new google.auth.GoogleAuth({ credentials: credentials as any, scopes: READ_SCOPES });
+      results.push({ email: account, auth });
+      seen.add(account);
+    }
+  }
+
+  // Generic oauth fallback (if no multi-account configured)
+  if (results.length === 0) {
+    const auth = buildOAuth('oauth');
+    if (auth) results.push({ email: 'default', auth });
+  }
+
+  return results;
+}
+
+/** Get default auth (backward compat) */
+function getAuth(): any {
+  return getAuthForAccount();
+}
+
+function getWriteAuth(): any {
+  // Write uses the same auth — OAuth scopes cover write if granted at auth time
+  return getAuth();
+}
+
+function getDrive(auth?: any): drive_v3.Drive {
+  return google.drive({ version: 'v3', auth: auth || getAuth() });
 }
 
 function getSheets(): sheets_v4.Sheets {
@@ -65,39 +127,75 @@ function getSheets(): sheets_v4.Sheets {
 // ── Scan: list all accessible files ─────────────────────
 
 export async function scanGoogleDrive(): Promise<StructureDoc[]> {
-  const drive = getDrive();
+  const auths = getAllAuths();
+  if (auths.length === 0) throw new Error('No Google accounts configured');
+
+  const allDocs: StructureDoc[] = [];
+  const seenIds = new Set<string>();
+
+  for (const { email, auth } of auths) {
+    process.stderr.write(`[scan] Google: scanning ${email}...\n`);
+    try {
+      const accountDocs = await scanOneAccount(auth, email);
+      // Deduplicate (same file shared across accounts)
+      for (const doc of accountDocs) {
+        if (!seenIds.has(doc.id)) {
+          seenIds.add(doc.id);
+          allDocs.push(doc);
+        }
+      }
+    } catch (e: any) {
+      process.stderr.write(`[scan] Google ${email}: ${e.message}\n`);
+    }
+  }
+
+  return allDocs;
+}
+
+async function scanOneAccount(auth: any, email: string): Promise<StructureDoc[]> {
+  const drive = getDrive(auth);
   const docs: StructureDoc[] = [];
   let pageToken: string | undefined;
 
   do {
     const res = await drive.files.list({
-      q: "trashed = false and (mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.presentation')",
-      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, parents, webViewLink)',
+      q: "trashed = false and (mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.presentation' or mimeType contains 'video/' or mimeType contains 'audio/')",
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, parents, webViewLink, size)',
       pageSize: 200,
       pageToken,
       orderBy: 'modifiedTime desc',
     });
 
-    for (const f of res.data.files || []) {
+    const files = res.data.files || [];
+    for (const f of files) {
       const type = mimeToType(f.mimeType || '');
-      docs.push({
+      const doc: StructureDoc = {
         id: f.id!,
         name: f.name || 'Untitled',
         type,
         source: 'google',
         modified_at: f.modifiedTime || undefined,
         url: f.webViewLink || undefined,
-      });
+      };
+      // Add size info for media files
+      if (isMediaMime(f.mimeType || '') && f.size) {
+        const mb = (parseInt(f.size) / (1024 * 1024)).toFixed(1);
+        doc.snippet = `${f.mimeType}, ${mb} MB`;
+      }
+      docs.push(doc);
     }
 
     pageToken = res.data.nextPageToken || undefined;
+    if (docs.length % 200 === 0 || !pageToken) {
+      process.stderr.write(`[scan] Google ${email}: ${docs.length} files${pageToken ? '...' : ' done'}\n`);
+    }
   } while (pageToken);
 
   // Resolve parent folder names for context
   await resolveParentFolders(drive, docs);
 
   // Enrich spreadsheets with sheet names + headers
-  const sheets = getSheets();
+  const sheets = google.sheets({ version: 'v4', auth });
   for (const doc of docs) {
     if (doc.type !== 'spreadsheet') continue;
     try {
@@ -130,6 +228,11 @@ export async function scanGoogleDrive(): Promise<StructureDoc[]> {
     } catch {} // skip unreadable spreadsheets
   }
 
+  // Prefix parent with account email for multi-account grouping
+  for (const doc of docs) {
+    doc.parent = doc.parent ? `${email}/${doc.parent}` : email;
+  }
+
   return docs;
 }
 
@@ -138,7 +241,7 @@ async function resolveParentFolders(drive: drive_v3.Drive, docs: StructureDoc[])
   const parentIds = new Set<string>();
   // We need to get parents from the API — re-fetch with parents field
   const filesWithParents = await drive.files.list({
-    q: "trashed = false and (mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.google-apps.document')",
+    q: "trashed = false and (mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.presentation' or mimeType contains 'video/' or mimeType contains 'audio/')",
     fields: 'files(id, parents)',
     pageSize: 500,
   });
@@ -173,26 +276,40 @@ async function resolveParentFolders(drive: drive_v3.Drive, docs: StructureDoc[])
 // ── Search ──────────────────────────────────────────────
 
 export async function searchGoogle(query: string, limit: number = 10): Promise<SearchResult[]> {
-  const drive = getDrive();
+  const auths = getAllAuths();
+  const allResults: SearchResult[] = [];
+  const seenIds = new Set<string>();
 
-  // Use Google Drive's full-text search
   const escapedQuery = query.replace(/'/g, "\\'");
-  const res = await drive.files.list({
-    q: `fullText contains '${escapedQuery}' and trashed = false`,
-    fields: 'files(id, name, mimeType, modifiedTime, webViewLink)',
-    pageSize: limit,
-    orderBy: 'modifiedTime desc',
-  });
 
-  return (res.data.files || []).map(f => ({
-    id: f.id!,
-    name: f.name || 'Untitled',
-    source: 'google' as const,
-    type: mimeToType(f.mimeType || ''),
-    snippet: '', // Google API doesn't return snippets in file list
-    url: f.webViewLink || undefined,
-    modified_at: f.modifiedTime || undefined,
-  }));
+  for (const { auth } of auths) {
+    try {
+      const drive = getDrive(auth);
+      const res = await drive.files.list({
+        q: `fullText contains '${escapedQuery}' and trashed = false`,
+        fields: 'files(id, name, mimeType, modifiedTime, webViewLink)',
+        pageSize: limit,
+        orderBy: 'modifiedTime desc',
+      });
+
+      for (const f of res.data.files || []) {
+        if (f.id && !seenIds.has(f.id)) {
+          seenIds.add(f.id);
+          allResults.push({
+            id: f.id,
+            name: f.name || 'Untitled',
+            source: 'google' as const,
+            type: mimeToType(f.mimeType || ''),
+            snippet: '',
+            url: f.webViewLink || undefined,
+            modified_at: f.modifiedTime || undefined,
+          });
+        }
+      }
+    } catch {}
+  }
+
+  return allResults.slice(0, limit);
 }
 
 // ── Read document content ────────────────────────────────
@@ -203,7 +320,7 @@ export async function readGoogleDoc(docId: string, range?: string): Promise<DocC
   // Get file metadata
   const meta = await drive.files.get({
     fileId: docId,
-    fields: 'id, name, mimeType, webViewLink',
+    fields: 'id, name, mimeType, webViewLink, size',
   });
 
   const mimeType = meta.data.mimeType || '';
@@ -216,6 +333,8 @@ export async function readGoogleDoc(docId: string, range?: string): Promise<DocC
     content = await readSpreadsheetContent(docId, range);
   } else if (mimeType === 'application/vnd.google-apps.document') {
     content = await readDocumentContent(docId);
+  } else if (isMediaMime(mimeType)) {
+    content = await readMediaContent(drive, docId, mimeType, meta.data.size);
   } else {
     // Export as plain text for other Google types
     const exported = await drive.files.export({
@@ -304,6 +423,44 @@ async function readDocumentContent(docId: string): Promise<string> {
     mimeType: 'text/plain',
   });
   return String(exported.data);
+}
+
+// ── Media transcription ──────────────────────────────────
+
+async function readMediaContent(drive: drive_v3.Drive, fileId: string, mimeType: string, size?: string | null): Promise<string> {
+  const sizeMB = size ? (parseInt(size) / (1024 * 1024)).toFixed(1) : '?';
+
+  const { hasDeepgramKey, transcribe } = await import('../transcribe.ts');
+  if (!hasDeepgramKey()) {
+    return `[Media file: ${mimeType}, ${sizeMB} MB]\n\nTranscription requires Deepgram API key.\nRun: gated-knowledge auth deepgram --token <api-key>\n\nGet a key at https://console.deepgram.com/ (free tier: 45min/month)`;
+  }
+
+  // Download file binary from Google Drive
+  const response = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'arraybuffer' },
+  );
+  const buffer = Buffer.from(response.data as ArrayBuffer);
+
+  // Transcribe via Deepgram
+  return await transcribe(buffer, mimeType);
+}
+
+// ── Delete file ──────────────────────────────────────────
+
+export async function deleteGoogleFile(fileId: string): Promise<string> {
+  const drive = google.drive({ version: 'v3', auth: getWriteAuth() });
+
+  const meta = await drive.files.get({ fileId, fields: 'name, webViewLink' });
+  const name = meta.data.name || 'Untitled';
+
+  // Move to trash (safe, reversible)
+  await drive.files.update({
+    fileId,
+    requestBody: { trashed: true },
+  });
+
+  return `Moved to trash: "${name}"`;
 }
 
 // ── Write document content ───────────────────────────────
@@ -397,5 +554,11 @@ function mimeToType(mime: string): string {
   if (mime.includes('document')) return 'document';
   if (mime.includes('presentation')) return 'presentation';
   if (mime.includes('folder')) return 'folder';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
   return 'file';
+}
+
+function isMediaMime(mime: string): boolean {
+  return mime.startsWith('video/') || mime.startsWith('audio/');
 }

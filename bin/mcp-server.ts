@@ -2,7 +2,7 @@
 
 const [major] = process.versions.node.split('.').map(Number);
 if (major < 22) {
-  process.stderr.write(`[gated-docs] Node.js 22+ required (you have ${process.versions.node}). Install: brew install node\n`);
+  process.stderr.write(`[gated-knowledge] Node.js 22+ required (you have ${process.versions.node}). Install: https://nodejs.org\n`);
   process.exit(1);
 }
 

@@ -10,7 +10,7 @@ export function generateDescription(
   stats: Structure['stats']
 ): string {
   const parts: string[] = [];
-  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram, Cloudflare, GitLab).');
+  parts.push('Search your auth-gated sources (Google Drive, Notion, Slack, Telegram, Cloudflare, GitLab, LangSmith, Sessions).');
 
   const sourceDescriptions: string[] = [];
 
@@ -74,8 +74,21 @@ export function generateDescription(
     sourceDescriptions.push(`GitLab: ${gl.count} resources (${typeParts})`);
   }
 
+  // LangSmith
+  if (stats.langsmith) {
+    const ls = stats.langsmith;
+    const typeParts = Object.entries(ls.types).map(([t, n]) => `${n} ${t}s`).join(', ');
+    sourceDescriptions.push(`LangSmith: ${ls.count} resources (${typeParts})`);
+  }
+
+  // Sessions
+  if (stats.sessions) {
+    const s = stats.sessions;
+    sourceDescriptions.push(`Sessions: ${s.count} Claude Code sessions archived`);
+  }
+
   if (sourceDescriptions.length === 0) {
-    parts.push('No sources connected yet. Run: gated-docs auth google --service-account <key.json>');
+    parts.push('No sources connected yet. Run: gated-knowledge auth google --service-account <key.json>');
   } else {
     parts.push('Connected sources:');
     for (const desc of sourceDescriptions) {
@@ -121,6 +134,18 @@ export function generateDescription(
         }
       }
     }
+  }
+
+  // Media files (video/audio) — show count and transcription availability
+  const mediaFiles = docs.filter(d => d.type === 'video' || d.type === 'audio');
+  if (mediaFiles.length > 0) {
+    parts.push('');
+    parts.push(`Media files (${mediaFiles.length} video/audio — use read_document to transcribe via Deepgram):`);
+    for (const m of mediaFiles.slice(0, 10)) {
+      const info = m.snippet || m.type;
+      parts.push(`  "${m.name}" (${info})`);
+    }
+    if (mediaFiles.length > 10) parts.push(`  ... and ${mediaFiles.length - 10} more`);
   }
 
   // Spreadsheets — compact summaries
@@ -189,11 +214,15 @@ export function generateDescription(
     }
   }
 
-  // GitLab details — projects with open MR counts
+  // GitLab details — projects with open MR counts + resource ID cheatsheet
   const glDocs = docs.filter(d => d.source === 'gitlab');
   if (glDocs.length > 0) {
     parts.push('');
-    parts.push('GitLab (use search/read_document for MRs, issues, project details):');
+    parts.push('GitLab (use read_document with source="gitlab"):');
+    parts.push('  Resource IDs: project:PID, mr:PID:IID, issue:PID:IID,');
+    parts.push('    commits:PID?path=dir&ref=branch&since=date, commit:PID:SHA,');
+    parts.push('    tree:PID?path=dir&ref=branch, file:PID:path/to/file?ref=branch,');
+    parts.push('    pipelines:PID?ref=branch, pipeline:PID:ID');
     const projects = glDocs.filter(d => d.type === 'project');
     const mrs = glDocs.filter(d => d.type === 'merge_request');
     const issues = glDocs.filter(d => d.type === 'issue');
@@ -206,6 +235,53 @@ export function generateDescription(
         issueCount ? `${issueCount} open issues` : '',
       ].filter(Boolean).join(', ');
       parts.push(`  ${p.name}${extra ? ` (${extra})` : ''}`);
+    }
+  }
+
+  // LangSmith details — projects with run counts
+  const lsDocs = docs.filter(d => d.source === 'langsmith');
+  if (lsDocs.length > 0) {
+    parts.push('');
+    parts.push('LangSmith (use search/read_document for runs, projects, datasets):');
+    const projects = lsDocs.filter(d => d.type === 'project');
+    const datasets = lsDocs.filter(d => d.type === 'dataset');
+
+    for (const p of projects) {
+      parts.push(`  ${p.name}${p.snippet ? ` — ${p.snippet}` : ''}`);
+    }
+    if (datasets.length) {
+      parts.push(`  Datasets: ${datasets.map(d => d.name).join(', ')}`);
+    }
+  }
+
+  // Sessions — list projects and recent sessions
+  const sessionDocs = docs.filter(d => d.source === 'sessions');
+  if (sessionDocs.length > 0) {
+    parts.push('');
+    parts.push('Sessions (use session_list, session_search, or read_document with source="sessions"):');
+
+    const byProject = new Map<string, number>();
+    for (const d of sessionDocs) {
+      const project = d.parent || 'unknown';
+      byProject.set(project, (byProject.get(project) || 0) + 1);
+    }
+
+    for (const [project, count] of byProject) {
+      parts.push(`  ${project}: ${count} sessions`);
+    }
+
+    // Show most recent sessions
+    const recent = sessionDocs
+      .sort((a, b) => (b.modified_at || '').localeCompare(a.modified_at || ''))
+      .slice(0, 5);
+
+    if (recent.length > 0) {
+      parts.push('  Recent:');
+      for (const s of recent) {
+        const date = s.modified_at ? new Date(s.modified_at).toLocaleDateString() : '';
+        const snip = s.snippet ? ` — "${s.snippet.slice(0, 60)}${s.snippet.length > 60 ? '...' : ''}"` : '';
+        parts.push(`    ${s.id} (${date})${snip}`);
+      }
     }
   }
 

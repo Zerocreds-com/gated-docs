@@ -1,5 +1,5 @@
 /**
- * gated-docs MCP server — stdio transport.
+ * gated-knowledge MCP server — stdio transport.
  * Provides search and read tools for auth-gated sources.
  * Tool descriptions are dynamically generated from structure.json.
  */
@@ -16,12 +16,12 @@ let structure = loadStructure();
 
 // Auto-scan in background if stale — don't block server startup
 if (!structure || isStructureStale(config)) {
-  process.stderr.write('[gated-docs] Structure stale, will scan in background...\n');
+  process.stderr.write('[gated-knowledge] Structure stale, will scan in background...\n');
   scan().then(s => {
     structure = s;
-    process.stderr.write(`[gated-docs] Background scan complete: ${s.docs.length} docs\n`);
+    process.stderr.write(`[gated-knowledge] Background scan complete: ${s.docs.length} docs\n`);
   }).catch(e => {
-    process.stderr.write(`[gated-docs] Background scan failed: ${e.message}\n`);
+    process.stderr.write(`[gated-knowledge] Background scan failed: ${e.message}\n`);
   });
 }
 
@@ -30,11 +30,11 @@ const searchDesc = structure?.mcp_description
   || generateDescription([], {} as any);
 const readDesc = structure
   ? generateReadDescription(structure.docs)
-  : 'Read a document by ID from connected sources. Run "gated-docs scan" first.';
+  : 'Read a document by ID from connected sources. Run "gated-knowledge scan" first.';
 
 const server = new McpServer({
-  name: 'gated-docs',
-  version: '1.0.0',
+  name: 'gated-knowledge',
+  version: '2.0.0',
 });
 
 // ── search ──────────────────────────────────────────────
@@ -44,7 +44,7 @@ server.tool(
   searchDesc,
   {
     query: z.string().describe('Search query (natural language or keywords)'),
-    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab']).optional()
+    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab', 'langsmith', 'sessions']).optional()
       .describe('Filter to specific source'),
     limit: z.number().optional()
       .describe('Max results (default: 10)'),
@@ -81,6 +81,14 @@ server.tool(
         } else if (src === 'gitlab') {
           const { searchGitLab } = await import('../connectors/gitlab.ts');
           const r = await searchGitLab(query, maxResults);
+          results.push(...r);
+        } else if (src === 'langsmith') {
+          const { searchLangSmith } = await import('../connectors/langsmith.ts');
+          const r = await searchLangSmith(query, maxResults);
+          results.push(...r);
+        } else if (src === 'sessions') {
+          const { searchSessions } = await import('../connectors/sessions.ts');
+          const r = await searchSessions(query, maxResults);
           results.push(...r);
         }
       } catch (e: any) {
@@ -126,12 +134,14 @@ server.tool(
   readDesc,
   {
     id: z.string().describe('Document/page/channel ID'),
-    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab'])
+    source: z.enum(['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab', 'langsmith', 'sessions'])
       .describe('Which source this document belongs to'),
     range: z.string().optional()
-      .describe('Sheet range in A1 notation for Google Sheets (e.g. "\'Sheet1\'" for full sheet, "\'Sheet1\'!A1:E100" for specific range). Without range, shows preview with row/column counts.'),
+      .describe('For Google Sheets: A1 range (e.g. "\'Sheet1\'!A1:E100"). For GitLab commits/tree: path filter (e.g. "src/api"). For GitLab pipelines: branch ref filter.'),
+    extract: z.enum(['edits', 'errors', 'user_messages']).optional()
+      .describe('Sessions only: extract specific content type instead of full session'),
   },
-  async ({ id, source, range }) => {
+  async ({ id, source, range, extract }) => {
     try {
       let content: { name: string; content: string; url?: string };
 
@@ -152,7 +162,18 @@ server.tool(
         content = await readCloudflareResource(id);
       } else if (source === 'gitlab') {
         const { readGitLabResource } = await import('../connectors/gitlab.ts');
-        content = await readGitLabResource(id);
+        content = await readGitLabResource(id, range);
+      } else if (source === 'langsmith') {
+        const { readLangSmithResource } = await import('../connectors/langsmith.ts');
+        content = await readLangSmithResource(id);
+      } else if (source === 'sessions') {
+        if (extract) {
+          const { readSessionExtracted } = await import('../connectors/sessions.ts');
+          content = await readSessionExtracted(id, extract, range);
+        } else {
+          const { readSessionResource } = await import('../connectors/sessions.ts');
+          content = await readSessionResource(id, range);
+        }
       } else {
         return { content: [{ type: 'text' as const, text: `Unknown source: ${source}` }] };
       }
@@ -192,6 +213,25 @@ server.tool(
   },
 );
 
+// ── delete_document ─────────────────────────────────────
+
+server.tool(
+  'delete_document',
+  'Move a Google Drive file to trash (reversible — can be recovered from trash). Use after reading/transcribing a file that is no longer needed.',
+  {
+    id: z.string().describe('Google Drive file ID'),
+  },
+  async ({ id }) => {
+    try {
+      const { deleteGoogleFile } = await import('../connectors/google.ts');
+      const result = await deleteGoogleFile(id);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error deleting file: ${e.message}` }] };
+    }
+  },
+);
+
 // ── list_sources ────────────────────────────────────────
 
 server.tool(
@@ -200,7 +240,7 @@ server.tool(
   {},
   async () => {
     if (!structure) {
-      return { content: [{ type: 'text' as const, text: 'No scan data. Run: gated-docs scan' }] };
+      return { content: [{ type: 'text' as const, text: 'No scan data. Run: gated-knowledge scan' }] };
     }
 
     const lines: string[] = [];
@@ -392,6 +432,527 @@ server.tool(
   },
 );
 
+// ── session_list ─────────────────────────────────────────
+
+server.tool(
+  'session_list',
+  'List Claude Code sessions from the local archive. Shows project, chunks count, date, and first user message. Use to discover sessions before reading them.',
+  {
+    project: z.string().optional()
+      .describe('Filter by project name (e.g. "session-snapshot", "manager")'),
+    limit: z.number().optional()
+      .describe('Max sessions to return (default: 20)'),
+  },
+  async ({ project, limit }) => {
+    try {
+      const { getSessionList } = await import('../connectors/sessions.ts');
+      const sessions = await getSessionList({ project, limit: limit || 20 });
+
+      if (sessions.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No sessions found. Make sure session-snapshot is installed and has generated MD diffs.' }] };
+      }
+
+      const lines = sessions.map((s, i) => {
+        const parts = [
+          `${i + 1}. **${s.project}** (${s.chunks} chunks${s.totalLines ? `, ${s.totalLines} JSONL lines` : ''})`,
+          `   ${s.modifiedAt ? new Date(s.modifiedAt).toLocaleString() : 'unknown date'}`,
+        ];
+        if (s.snippet) parts.push(`   "${s.snippet.slice(0, 120)}${s.snippet.length > 120 ? '...' : ''}"`);
+        parts.push(`   ID: ${s.id}`);
+        return parts.join('\n');
+      });
+
+      // Show unique projects
+      const projects = [...new Set(sessions.map(s => s.project))];
+
+      let text = `Found ${sessions.length} session(s) across projects: ${projects.join(', ')}\n\n${lines.join('\n\n')}`;
+      text += `\n\nUse read_document(id, source="sessions") to read a session. Use range="0-2" for first 3 chunks, "last" for latest.`;
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error listing sessions: ${e.message}` }] };
+    }
+  },
+);
+
+// ── session_search ───────────────────────────────────────
+
+server.tool(
+  'session_search',
+  'Search through Claude Code session content. Searches full text of MD diffs across all sessions. Supports date filtering. More targeted than general search — use when looking for specific code, decisions, or conversations from past sessions.',
+  {
+    query: z.string().describe('Search query (keywords)'),
+    project: z.string().optional()
+      .describe('Filter to a specific project'),
+    since: z.string().optional()
+      .describe('Only sessions modified after this date (ISO date, e.g. "2026-03-10")'),
+    until: z.string().optional()
+      .describe('Only sessions modified before this date (ISO date, e.g. "2026-03-16")'),
+    limit: z.number().optional()
+      .describe('Max results (default: 10)'),
+  },
+  async ({ query, project, since, until, limit }) => {
+    try {
+      const { searchSessions } = await import('../connectors/sessions.ts');
+      const results = await searchSessions(query, limit || 10, { project, since, until });
+
+      if (results.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No sessions found matching "${query}".` }] };
+      }
+
+      const lines = results.map((r, i) => {
+        const parts = [`${i + 1}. **${r.name}**`];
+        if (r.modified_at) parts.push(`   ${new Date(r.modified_at).toLocaleString()}`);
+        if (r.snippet) parts.push(`   ${r.snippet.slice(0, 200)}`);
+        parts.push(`   ID: ${r.id}`);
+        return parts.join('\n');
+      });
+
+      let text = `Found ${results.length} session(s) matching "${query}":\n\n${lines.join('\n\n')}`;
+      text += `\n\nUse read_document(id, source="sessions") to read the full session.`;
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error searching sessions: ${e.message}` }] };
+    }
+  },
+);
+
+// ── session_stats ───────────────────────────────────────
+
+server.tool(
+  'session_stats',
+  'Get aggregated statistics from Claude Code sessions: tool usage counts, files touched, turn counts, error counts. Works on one session or across sessions filtered by project/date.',
+  {
+    id: z.string().optional()
+      .describe('Single session ID to analyze. If omitted, aggregates across all matching sessions.'),
+    project: z.string().optional()
+      .describe('Filter by project name'),
+    since: z.string().optional()
+      .describe('Only sessions after this date (ISO, e.g. "2026-03-10")'),
+    until: z.string().optional()
+      .describe('Only sessions before this date (ISO, e.g. "2026-03-16")'),
+  },
+  async ({ id, project, since, until }) => {
+    try {
+      const { getSessionStats } = await import('../connectors/sessions.ts');
+      const stats = await getSessionStats({ id, project, since, until });
+
+      const lines: string[] = [];
+      lines.push(`## Session Statistics`);
+      lines.push(`Sessions: ${stats.sessionCount}`);
+      lines.push(`Projects: ${stats.projects.join(', ') || 'none'}`);
+      if (stats.dateRange.first) {
+        lines.push(`Date range: ${stats.dateRange.first.slice(0, 10)} → ${stats.dateRange.last.slice(0, 10)}`);
+      }
+      lines.push(`Total size: ${stats.totalSizeKB}KB`);
+      lines.push(`User turns: ${stats.totalUserTurns}, Assistant turns: ${stats.totalAssistantTurns}`);
+      lines.push(`Errors encountered: ${stats.errorCount}`);
+
+      lines.push(`\n### Tool Usage`);
+      const sortedTools = Object.entries(stats.toolUsage).sort((a, b) => b[1] - a[1]);
+      for (const [tool, count] of sortedTools) {
+        lines.push(`  ${tool}: ${count}`);
+      }
+
+      if (stats.filesTouched.length > 0) {
+        lines.push(`\n### Files Touched (${stats.filesTouched.length})`);
+        for (const f of stats.filesTouched.slice(0, 50)) {
+          lines.push(`  ${f}`);
+        }
+        if (stats.filesTouched.length > 50) lines.push(`  ... and ${stats.filesTouched.length - 50} more`);
+      }
+
+      if (stats.bashCommands.length > 0) {
+        lines.push(`\n### Bash Commands (${stats.bashCommands.length})`);
+        for (const cmd of stats.bashCommands.slice(0, 30)) {
+          lines.push(`  ${cmd}`);
+        }
+        if (stats.bashCommands.length > 30) lines.push(`  ... and ${stats.bashCommands.length - 30} more`);
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error getting session stats: ${e.message}` }] };
+    }
+  },
+);
+
+// ── session_summary ─────────────────────────────────────
+
+server.tool(
+  'session_summary',
+  'Get a structured summary of Claude Code sessions without reading full content. Extracts: goal, files changed, key actions, user requests, outcome. Pattern-based extraction, no LLM.',
+  {
+    id: z.string().optional()
+      .describe('Single session ID to summarize'),
+    project: z.string().optional()
+      .describe('Summarize all sessions for a project'),
+    since: z.string().optional()
+      .describe('Only sessions after this date (ISO)'),
+    until: z.string().optional()
+      .describe('Only sessions before this date (ISO)'),
+    limit: z.number().optional()
+      .describe('Max sessions to summarize (default: 10)'),
+  },
+  async ({ id, project, since, until, limit }) => {
+    try {
+      const { getSessionSummary } = await import('../connectors/sessions.ts');
+      const summaries = await getSessionSummary({ id, project, since, until, limit });
+
+      if (summaries.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No sessions found matching criteria.' }] };
+      }
+
+      const blocks = summaries.map(s => {
+        const lines: string[] = [];
+        lines.push(`## ${s.project} (${s.sizeKB}KB, ${s.turnCount} turns)`);
+        lines.push(`ID: ${s.id}`);
+        lines.push(`Date: ${s.modifiedAt ? new Date(s.modifiedAt).toLocaleString() : 'unknown'}`);
+        lines.push(`\n**Goal:** ${s.goal.slice(0, 200)}`);
+        if (s.outcome) lines.push(`**Outcome:** ${s.outcome.slice(0, 200)}`);
+        if (s.errorCount > 0) lines.push(`**Errors:** ${s.errorCount}`);
+
+        if (s.filesChanged.length > 0) {
+          lines.push(`\n**Files changed (${s.filesChanged.length}):**`);
+          for (const f of s.filesChanged.slice(0, 15)) lines.push(`  - ${f}`);
+          if (s.filesChanged.length > 15) lines.push(`  ... and ${s.filesChanged.length - 15} more`);
+        }
+
+        if (s.keyActions.length > 0) {
+          lines.push(`\n**Key actions:**`);
+          for (const a of s.keyActions.slice(0, 15)) lines.push(`  - ${a}`);
+          if (s.keyActions.length > 15) lines.push(`  ... and ${s.keyActions.length - 15} more`);
+        }
+
+        if (s.userRequests.length > 1) {
+          lines.push(`\n**User requests (${s.userRequests.length}):**`);
+          for (const r of s.userRequests.slice(0, 10)) lines.push(`  - ${r}`);
+          if (s.userRequests.length > 10) lines.push(`  ... and ${s.userRequests.length - 10} more`);
+        }
+
+        return lines.join('\n');
+      });
+
+      return { content: [{ type: 'text' as const, text: blocks.join('\n\n---\n\n') }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error summarizing sessions: ${e.message}` }] };
+    }
+  },
+);
+
+// ── auth_status ─────────────────────────────────────────
+
+interface CredCheck {
+  source: string;
+  credential: string;
+  status: 'ok' | 'missing' | 'error';
+  detail?: string;
+  fix_command?: string;
+}
+
+async function checkCredentials(liveCheck: boolean): Promise<CredCheck[]> {
+  const { hasCredential, getCredential } = await import('../keychain.ts');
+  const results: CredCheck[] = [];
+
+  // Google (SA)
+  const googleAccount = config.sources.google?.account;
+  if (config.sources.google?.enabled) {
+    if (!googleAccount) {
+      results.push({ source: 'google', credential: 'service-account', status: 'missing', detail: 'No SA account configured', fix_command: 'gated-knowledge auth google --service-account <key.json>' });
+    } else {
+      const hasCred = hasCredential('google', googleAccount);
+      if (!hasCred) {
+        results.push({ source: 'google', credential: 'service-account', status: 'missing', detail: `SA ${googleAccount} not in keychain`, fix_command: 'gated-knowledge auth google --service-account <key.json>' });
+      } else if (liveCheck) {
+        try {
+          const { getServiceAccountCredentials } = await import('../keychain.ts');
+          const creds = getServiceAccountCredentials(googleAccount);
+          if (!creds) throw new Error('Failed to decode SA JSON');
+          // Try a lightweight API call
+          const { google } = await import('googleapis');
+          const auth = new google.auth.GoogleAuth({ credentials: creds as any, scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
+          const drive = google.drive({ version: 'v3', auth });
+          await drive.files.list({ pageSize: 1 });
+          results.push({ source: 'google', credential: 'service-account', status: 'ok', detail: `SA: ${googleAccount}` });
+        } catch (e: any) {
+          results.push({ source: 'google', credential: 'service-account', status: 'error', detail: e.message, fix_command: 'gated-knowledge auth google --service-account <key.json>' });
+        }
+      } else {
+        results.push({ source: 'google', credential: 'service-account', status: 'ok', detail: `SA: ${googleAccount} (exists, not live-checked)` });
+      }
+    }
+  }
+
+  // Simple token-based sources
+  const tokenSources: Array<{ name: string; key: string; account: string; authCmd: string }> = [
+    { name: 'notion', key: 'notion', account: 'default', authCmd: 'gated-knowledge auth notion --token <ntn_xxx>' },
+    { name: 'slack', key: 'slack', account: 'default', authCmd: 'gated-knowledge auth slack --token <xoxb-xxx>' },
+    { name: 'cloudflare', key: 'cloudflare', account: 'default', authCmd: 'gated-knowledge auth cloudflare --token <cf-token>' },
+    { name: 'gitlab', key: 'gitlab', account: 'default', authCmd: 'gated-knowledge auth gitlab --token <glpat-xxx>' },
+    { name: 'langsmith', key: 'langsmith', account: 'default', authCmd: 'gated-knowledge auth langsmith --token <ls-key>' },
+    { name: 'deepgram', key: 'deepgram', account: 'default', authCmd: 'gated-knowledge auth deepgram --token <api-key>' },
+  ];
+
+  for (const ts of tokenSources) {
+    const srcConfig = config.sources[ts.name as SourceType];
+    if (!srcConfig?.enabled && ts.name !== 'deepgram') continue;
+    // Deepgram is optional, check anyway if credential exists
+    if (ts.name === 'deepgram' && !hasCredential(ts.key, ts.account)) continue;
+
+    const hasCred = hasCredential(ts.key, ts.account);
+    if (!hasCred) {
+      results.push({ source: ts.name, credential: 'token', status: 'missing', fix_command: ts.authCmd });
+    } else if (liveCheck) {
+      try {
+        if (ts.name === 'notion') {
+          const { Client } = await import('@notionhq/client');
+          const token = getCredential('notion', 'default');
+          const client = new Client({ auth: token! });
+          await client.search({ page_size: 1 });
+        } else if (ts.name === 'slack') {
+          const { WebClient } = await import('@slack/web-api');
+          const token = getCredential('slack', 'default');
+          const client = new WebClient(token!);
+          await client.auth.test();
+        } else if (ts.name === 'cloudflare') {
+          const token = getCredential('cloudflare', 'default');
+          const resp = await fetch('https://api.cloudflare.com/client/v4/zones?per_page=1', { headers: { Authorization: `Bearer ${token}` } });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        } else if (ts.name === 'gitlab') {
+          const token = getCredential('gitlab', 'default');
+          const url = config.gitlab_url || 'https://gitlab.com';
+          const resp = await fetch(`${url}/api/v4/projects?per_page=1`, { headers: { 'PRIVATE-TOKEN': token! } });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        }
+        results.push({ source: ts.name, credential: 'token', status: 'ok', detail: 'Live check passed' });
+      } catch (e: any) {
+        results.push({ source: ts.name, credential: 'token', status: 'error', detail: e.message, fix_command: ts.authCmd });
+      }
+    } else {
+      results.push({ source: ts.name, credential: 'token', status: 'ok', detail: 'Token exists (not live-checked)' });
+    }
+  }
+
+  // Telegram (special: JSON blob with api_id, api_hash, session)
+  if (config.sources.telegram?.enabled) {
+    const hasCred = hasCredential('telegram', 'default');
+    if (!hasCred) {
+      results.push({ source: 'telegram', credential: 'session', status: 'missing', fix_command: 'gated-knowledge auth telegram --api-id <N> --api-hash <hash>' });
+    } else {
+      results.push({ source: 'telegram', credential: 'session', status: 'ok', detail: 'Session exists (live check not supported for Telegram)' });
+    }
+  }
+
+  // Gmail (OAuth2)
+  const gmailRead = hasCredential('gmail', 'oauth');
+  const gmailSend = hasCredential('gmail', 'oauth-send');
+  if (gmailRead || config.sources.google?.enabled) {
+    if (!gmailRead) {
+      results.push({ source: 'gmail', credential: 'oauth-read', status: 'missing', fix_command: 'gated-knowledge auth gmail --client-secret-file <json>' });
+    } else {
+      results.push({ source: 'gmail', credential: 'oauth-read', status: 'ok', detail: 'OAuth token exists' });
+    }
+    if (!gmailSend) {
+      results.push({ source: 'gmail', credential: 'oauth-send', status: 'missing', fix_command: 'gated-knowledge auth gmail --send' });
+    } else {
+      results.push({ source: 'gmail', credential: 'oauth-send', status: 'ok', detail: 'OAuth send token exists' });
+    }
+  }
+
+  // Sessions (always available, no auth)
+  results.push({ source: 'sessions', credential: 'none', status: 'ok', detail: 'Local files, no auth needed' });
+
+  return results;
+}
+
+server.tool(
+  'auth_status',
+  'Check health of all credentials. Shows which sources have valid tokens and which need fixing. Use live_check=true for actual API validation (slower).',
+  {
+    live_check: z.boolean().optional()
+      .describe('If true, makes lightweight API calls to verify tokens actually work (default: false, just checks existence)'),
+    source: z.string().optional()
+      .describe('Check specific source only (e.g. "google", "slack", "gmail")'),
+  },
+  async ({ live_check, source }) => {
+    try {
+      let checks = await checkCredentials(live_check || false);
+
+      if (source) {
+        checks = checks.filter(c => c.source === source);
+      }
+
+      if (checks.length === 0) {
+        return { content: [{ type: 'text' as const, text: source ? `Source "${source}" is not configured.` : 'No sources configured.' }] };
+      }
+
+      const lines: string[] = ['## Credential Status\n'];
+      const icons = { ok: '[OK]', missing: '[MISSING]', error: '[ERROR]' };
+
+      for (const c of checks) {
+        const icon = icons[c.status];
+        let line = `${icon} **${c.source}** (${c.credential})`;
+        if (c.detail) line += ` — ${c.detail}`;
+        lines.push(line);
+        if (c.status !== 'ok' && c.fix_command) {
+          lines.push(`     Fix: \`${c.fix_command}\``);
+        }
+      }
+
+      const ok = checks.filter(c => c.status === 'ok').length;
+      const total = checks.length;
+      lines.push(`\n${ok}/${total} credentials healthy.`);
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text' as const, text: `Error checking auth: ${e.message}` }] };
+    }
+  },
+);
+
+// ── auth_fix ────────────────────────────────────────────
+
+const AUTH_FIX_GUIDES: Record<string, string> = {
+  google: `## Fix Google Drive/Sheets/Docs credentials
+
+**What's needed:** Service Account JSON key file
+
+**Steps:**
+1. Go to Google Cloud Console → IAM & Admin → Service Accounts
+2. Create or find existing SA (e.g. gated-docs@PROJECT.iam.gserviceaccount.com)
+3. Create a key (JSON format), download it
+4. Run: \`gated-knowledge auth google --service-account <path-to-key.json>\`
+5. Share your Google Drive folders with the SA email
+
+**Scopes used:** drive.readonly, spreadsheets.readonly, documents.readonly
+**Storage:** Base64-encoded SA JSON in OS keychain under "gated-docs-google/{sa-email}"`,
+
+  notion: `## Fix Notion credentials
+
+**What's needed:** Internal integration token (ntn_xxx)
+
+**Steps:**
+1. Go to https://www.notion.so/my-integrations
+2. Create or find existing integration
+3. Copy the token (starts with ntn_)
+4. Run: \`gated-knowledge auth notion --token <ntn_xxx>\`
+5. Share your Notion pages/databases with the integration
+
+**Storage:** Token in OS keychain under "gated-docs-notion/default"`,
+
+  slack: `## Fix Slack credentials
+
+**What's needed:** Bot User OAuth Token (xoxb-xxx)
+
+**Steps:**
+1. Go to https://api.slack.com/apps → your app
+2. OAuth & Permissions → Bot User OAuth Token
+3. Required scopes: channels:read, channels:history, search:read
+4. Run: \`gated-knowledge auth slack --token <xoxb-xxx>\`
+
+**Storage:** Token in OS keychain under "gated-docs-slack/default"`,
+
+  telegram: `## Fix Telegram credentials
+
+**What's needed:** Telegram API credentials (api_id + api_hash)
+
+**Steps:**
+1. Go to https://my.telegram.org → API development tools
+2. Get api_id (number) and api_hash (string)
+3. Run: \`gated-knowledge auth telegram --api-id <N> --api-hash <hash>\`
+4. Complete phone verification when prompted
+
+**Storage:** JSON blob (api_id, api_hash, session string) in OS keychain under "gated-docs-telegram/default"`,
+
+  cloudflare: `## Fix Cloudflare credentials
+
+**What's needed:** API Token with read permissions
+
+**Steps:**
+1. Go to https://dash.cloudflare.com/profile/api-tokens
+2. Create token with: Zone:Read, DNS:Read, Workers:Read, Pages:Read, D1:Read
+3. Run: \`gated-knowledge auth cloudflare --token <cf-token>\`
+
+**Storage:** Token in OS keychain under "gated-docs-cloudflare/default"`,
+
+  gitlab: `## Fix GitLab credentials
+
+**What's needed:** Personal Access Token (glpat-xxx)
+
+**Steps:**
+1. Go to GitLab → User Settings → Access Tokens
+2. Create token with scopes: read_api, read_repository
+3. Run: \`gated-knowledge auth gitlab --token <glpat-xxx>\`
+4. For self-hosted: \`gated-knowledge auth gitlab --token <token> --url https://gitlab.example.com\`
+
+**Storage:** Token in OS keychain under "gated-docs-gitlab/default"`,
+
+  gmail: `## Fix Gmail credentials
+
+**What's needed:** OAuth2 client secret JSON + browser auth flow
+
+**For reading emails:**
+1. Get OAuth2 client secret JSON from Google Cloud Console → APIs & Services → Credentials
+2. Run: \`gated-knowledge auth gmail --client-secret-file <path-to-client-secret.json>\`
+3. Complete browser auth flow (grants gmail.readonly scope)
+
+**For sending emails:**
+1. Run: \`gated-knowledge auth gmail --send\` (reuses existing client credentials)
+2. Complete browser auth flow (grants gmail.send scope)
+
+**Storage:** OAuth2 refresh tokens (base64 JSON) in keychain:
+  - Read: "gated-docs-gmail/oauth"
+  - Send: "gated-docs-gmail/oauth-send"`,
+
+  deepgram: `## Fix Deepgram credentials
+
+**What's needed:** Deepgram API key for audio/video transcription
+
+**Steps:**
+1. Go to https://console.deepgram.com → API Keys
+2. Create a key
+3. Run: \`gated-knowledge auth deepgram --token <api-key>\`
+
+**Storage:** Token in OS keychain under "gated-docs-deepgram/default"`,
+
+  langsmith: `## Fix LangSmith credentials
+
+**What's needed:** LangSmith API key
+
+**Steps:**
+1. Go to https://smith.langchain.com → Settings → API Keys
+2. Create or copy an API key
+3. Run: \`gated-knowledge auth langsmith --token <ls-key>\`
+
+**Storage:** Token in OS keychain under "gated-docs-langsmith/default"`,
+};
+
+server.tool(
+  'auth_fix',
+  'Get step-by-step instructions to fix credentials for a specific source. Shows what token is needed, where to get it, what scopes are required, and the exact CLI command to run.',
+  {
+    source: z.string()
+      .describe('Source to fix: google, notion, slack, telegram, cloudflare, gitlab, gmail, deepgram, langsmith'),
+  },
+  async ({ source }) => {
+    const guide = AUTH_FIX_GUIDES[source];
+    if (!guide) {
+      const available = Object.keys(AUTH_FIX_GUIDES).join(', ');
+      return { content: [{ type: 'text' as const, text: `Unknown source "${source}". Available: ${available}` }] };
+    }
+
+    // Also show current status for this source
+    const checks = await checkCredentials(false);
+    const relevant = checks.filter(c => c.source === source);
+    let status = '';
+    if (relevant.length > 0) {
+      const icons = { ok: '[OK]', missing: '[MISSING]', error: '[ERROR]' };
+      status = '\n\n## Current Status\n' + relevant.map(c => `${icons[c.status]} ${c.credential} — ${c.detail || c.status}`).join('\n');
+    }
+
+    return { content: [{ type: 'text' as const, text: guide + status }] };
+  },
+);
+
 // ── Helpers ──────────────────────────────────────────────
 
 function getEnabledSources(): SourceType[] {
@@ -402,6 +963,9 @@ function getEnabledSources(): SourceType[] {
   if (config.sources.telegram?.enabled) sources.push('telegram');
   if (config.sources.cloudflare?.enabled) sources.push('cloudflare');
   if (config.sources.gitlab?.enabled) sources.push('gitlab');
+  if (config.sources.langsmith?.enabled) sources.push('langsmith');
+  // Sessions are always available (local files, no auth needed)
+  sources.push('sessions');
   return sources;
 }
 
@@ -445,4 +1009,4 @@ function searchStructure(query: string, source?: SourceType, limit = 10) {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-process.stderr.write(`[gated-docs] MCP server started (${structure?.docs.length || 0} docs indexed)\n`);
+process.stderr.write(`[gated-knowledge] MCP server started (${structure?.docs.length || 0} docs indexed)\n`);

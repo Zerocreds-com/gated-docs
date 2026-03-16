@@ -122,9 +122,44 @@ export async function scan(): Promise<Structure> {
     }
   }
 
+  // LangSmith
+  if (config.sources.langsmith?.enabled) {
+    if (hasCredential('langsmith', 'default')) {
+      try {
+        const { scanLangSmith } = await import('./connectors/langsmith.ts');
+        const docs = await scanLangSmith();
+        allDocs.push(...docs);
+        process.stderr.write(`[scan] LangSmith: ${docs.length} resources\n`);
+      } catch (e: any) {
+        errors.push(`LangSmith: ${e.message}`);
+        process.stderr.write(`[scan] LangSmith error: ${e.message}\n`);
+      }
+    }
+  }
+
+  // Sessions (local — no credentials needed, auto-detect if archive exists)
+  {
+    const sessionsEnabled = config.sources.sessions?.enabled;
+    const archiveDir = config.sessions?.archive_dir
+      || (await import('node:path')).join((await import('node:os')).homedir(), '.config', 'session-snapshot', 'archive');
+    const archiveExists = sessionsEnabled || (await import('node:fs')).existsSync(archiveDir);
+
+    if (archiveExists) {
+      try {
+        const { scanSessions } = await import('./connectors/sessions.ts');
+        const docs = await scanSessions();
+        allDocs.push(...docs);
+        process.stderr.write(`[scan] Sessions: ${docs.length} sessions\n`);
+      } catch (e: any) {
+        errors.push(`Sessions: ${e.message}`);
+        process.stderr.write(`[scan] Sessions error: ${e.message}\n`);
+      }
+    }
+  }
+
   // Build stats
   const stats: Structure['stats'] = {} as any;
-  for (const source of ['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab'] as SourceType[]) {
+  for (const source of ['google', 'notion', 'slack', 'telegram', 'cloudflare', 'gitlab', 'langsmith', 'sessions'] as SourceType[]) {
     const sourceDocs = allDocs.filter(d => d.source === source);
     if (sourceDocs.length === 0) continue;
 

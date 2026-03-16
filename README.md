@@ -1,15 +1,15 @@
-# gated-docs
+# gated-knowledge
 
 A fully local bridge between your AI agent and your documents — wherever they live. Google Drive, Sheets, Docs, BigQuery, Gmail, Notion, Slack, Telegram, Cloudflare, GitLab.
 
-Tells [Claude Code](https://docs.anthropic.com/en/docs/claude-code) where to find your data and how to access it, without exposing anything to the network. **No hosted service, no open ports, no HTTP server.** Just a local process talking to Claude over stdio, with credentials locked in macOS Keychain.
+Tells [Claude Code](https://docs.anthropic.com/en/docs/claude-code) where to find your data and how to access it, without exposing anything to the network. **No hosted service, no open ports, no HTTP server.** Just a local process talking to Claude over stdio, with credentials locked in your OS secure storage.
 
 ## Why
 
 Claude Code can't see your private data — Drive files, Notion pages, Slack messages, BigQuery tables. Existing solutions often involve hosted proxies or browser extensions. This is different:
 
 - **Fully local** — stdio transport, no listening ports, no server to expose
-- **Credentials in Keychain** — encrypted at rest, locked when your Mac is locked, never in config files or env vars
+- **OS-level credential storage** — macOS Keychain, Windows DPAPI, or Linux secret-tool — encrypted at rest, never in config files or env vars
 - **Direct API calls** — your machine talks to Google/Notion/Slack directly, no middleman
 - **Read-only by default** — service accounts and tokens use minimal permissions
 
@@ -39,8 +39,8 @@ What it does:
 ### 1. Install
 
 ```bash
-git clone https://github.com/Chill-AI-Space/gated-docs.git
-cd gated-docs
+git clone https://github.com/Zerocreds-com/gated-knowledge.git
+cd gated-knowledge
 npm install
 ```
 
@@ -49,7 +49,7 @@ Requires **Node.js 22+** (uses native TypeScript via `--experimental-strip-types
 ### 2. Register MCP server
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts setup
+node --experimental-strip-types bin/gated-knowledge.ts setup
 ```
 
 This writes the MCP config to `~/.claude.json`. Restart Claude Code to pick it up.
@@ -61,7 +61,7 @@ Pick any source below and run the `auth` command. You can connect as many as you
 ### 4. Scan
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts scan
+node --experimental-strip-types bin/gated-knowledge.ts scan
 ```
 
 Builds `structure.json` — an index of all your documents, tables, and channels. This powers the dynamic tool descriptions so Claude knows what data is available.
@@ -90,10 +90,10 @@ Detailed walkthrough: **[docs/google-setup.md](docs/google-setup.md)**
 </details>
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth google --service-account ~/Downloads/key.json
+node --experimental-strip-types bin/gated-knowledge.ts auth google --service-account ~/Downloads/key.json
 ```
 
-After auth, you can delete the key file — it's stored in Keychain.
+After auth, you can delete the key file — it's stored in your OS credential store.
 
 ### BigQuery
 
@@ -122,16 +122,16 @@ Two separate tokens for least privilege: read-only and send.
 3. Connect read access:
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
+node --experimental-strip-types bin/gated-knowledge.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
 ```
 
 4. (Optional) Connect send access — reuses the same client credentials:
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth gmail --send
+node --experimental-strip-types bin/gated-knowledge.ts auth gmail --send
 ```
 
-Each step opens a browser for one-time consent. Refresh tokens stored permanently in Keychain.
+Each step opens a browser for one-time consent. Refresh tokens stored permanently in your OS credential store.
 
 ### Notion
 
@@ -139,7 +139,7 @@ Each step opens a browser for one-time consent. Refresh tokens stored permanentl
 2. In Notion, share databases/pages with the integration
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth notion --token ntn_xxxx
+node --experimental-strip-types bin/gated-knowledge.ts auth notion --token ntn_xxxx
 ```
 
 ### Slack
@@ -151,7 +151,7 @@ node --experimental-strip-types bin/gated-docs.ts auth notion --token ntn_xxxx
 3. Install to workspace → copy the token
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth slack --token xoxb-xxxx
+node --experimental-strip-types bin/gated-knowledge.ts auth slack --token xoxb-xxxx
 ```
 
 ### Telegram
@@ -160,7 +160,7 @@ node --experimental-strip-types bin/gated-docs.ts auth slack --token xoxb-xxxx
 2. Run auth (interactive — you'll receive a code via Telegram):
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth telegram --api-id 12345 --api-hash abc123
+node --experimental-strip-types bin/gated-knowledge.ts auth telegram --api-id 12345 --api-hash abc123
 ```
 
 ### Cloudflare
@@ -169,7 +169,7 @@ node --experimental-strip-types bin/gated-docs.ts auth telegram --api-id 12345 -
 2. Permissions (all Read): Zone, DNS, Workers Scripts, Pages, D1, Workers KV Storage, R2
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth cloudflare --token cf-xxxx
+node --experimental-strip-types bin/gated-knowledge.ts auth cloudflare --token cf-xxxx
 ```
 
 ### GitLab
@@ -181,10 +181,10 @@ Works with **gitlab.com** and **self-hosted** GitLab instances.
 
 ```bash
 # gitlab.com
-node --experimental-strip-types bin/gated-docs.ts auth gitlab --token glpat-xxxx
+node --experimental-strip-types bin/gated-knowledge.ts auth gitlab --token glpat-xxxx
 
 # Self-hosted
-node --experimental-strip-types bin/gated-docs.ts auth gitlab --token glpat-xxxx --url https://gitlab.example.com
+node --experimental-strip-types bin/gated-knowledge.ts auth gitlab --token glpat-xxxx --url https://gitlab.example.com
 ```
 
 Claude can then search and read your projects, merge requests (with full diffs and comments), and issues.
@@ -228,25 +228,25 @@ Claude will call the right MCP tools automatically.
 All commands:
 
 ```bash
-gated-docs setup                                        # Register MCP in ~/.claude.json
-gated-docs auth google --service-account <key.json>     # Connect Google Drive/Sheets/Docs
-gated-docs auth notion --token <ntn_xxx>                # Connect Notion
-gated-docs auth slack --token <xoxb-xxx>                # Connect Slack
-gated-docs auth telegram --api-id <N> --api-hash <hash> # Connect Telegram
-gated-docs auth cloudflare --token <cf-token>           # Connect Cloudflare
-gated-docs auth gitlab --token <pat> [--url <url>]      # Connect GitLab (self-hosted or gitlab.com)
-gated-docs auth gmail --client-secret-file <json>       # Connect Gmail read (OAuth2)
-gated-docs auth gmail --send                            # Connect Gmail send (reuses client creds)
-gated-docs scan                                         # Rebuild document index
-gated-docs status                                       # Show connections & stats
-gated-docs search "query"                               # Test search from terminal
-gated-docs check-email [query]                          # Test email from terminal
-gated-docs deauth <source>                              # Remove credentials
+gated-knowledge setup                                        # Register MCP in ~/.claude.json
+gated-knowledge auth google --service-account <key.json>     # Connect Google Drive/Sheets/Docs
+gated-knowledge auth notion --token <ntn_xxx>                # Connect Notion
+gated-knowledge auth slack --token <xoxb-xxx>                # Connect Slack
+gated-knowledge auth telegram --api-id <N> --api-hash <hash> # Connect Telegram
+gated-knowledge auth cloudflare --token <cf-token>           # Connect Cloudflare
+gated-knowledge auth gitlab --token <pat> [--url <url>]      # Connect GitLab (self-hosted or gitlab.com)
+gated-knowledge auth gmail --client-secret-file <json>       # Connect Gmail read (OAuth2)
+gated-knowledge auth gmail --send                            # Connect Gmail send (reuses client creds)
+gated-knowledge scan                                         # Rebuild document index
+gated-knowledge status                                       # Show connections & stats
+gated-knowledge search "query"                               # Test search from terminal
+gated-knowledge check-email [query]                          # Test email from terminal
+gated-knowledge deauth <source>                              # Remove credentials
 ```
 
 Run via:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts <command>
+node --experimental-strip-types bin/gated-knowledge.ts <command>
 ```
 
 ## How It Works
@@ -255,10 +255,10 @@ node --experimental-strip-types bin/gated-docs.ts <command>
 ┌─────────────────────────────────────────────────────────┐
 │  Your machine (everything runs here)                    │
 │                                                         │
-│  Claude Code ──stdio──> gated-docs (local process)      │
+│  Claude Code ──stdio──> gated-knowledge (local process)      │
 │                              │                          │
 │                       structure.json  (doc index)       │
-│                       macOS Keychain  (credentials)     │
+│                       OS credentials  (Keychain/DPAPI)  │
 │                              │                          │
 └──────────────────────────────┼──────────────────────────┘
                                │ HTTPS (outbound only)
@@ -266,7 +266,7 @@ node --experimental-strip-types bin/gated-docs.ts <command>
            Google · Notion · Slack · Telegram · Cloudflare · GitLab
 ```
 
-1. **Auth** stores credentials in macOS Keychain (base64-encoded for JSON values)
+1. **Auth** stores credentials in OS secure storage (base64-encoded for JSON values)
 2. **Scan** calls each connector to index documents → saves `structure.json`
 3. **MCP server** loads the structure at startup, generates dynamic tool descriptions
 4. **Search** uses native APIs per source (Drive fulltext, Notion search, Slack search, Telegram global search)
@@ -279,24 +279,29 @@ No inbound connections. The only network traffic is outbound HTTPS to the servic
 
 | Path | Purpose |
 |------|---------|
-| `~/.config/gated-docs/config.json` | Enabled sources and settings |
-| `~/.config/gated-docs/structure.json` | Scan output (document index, schemas) |
-| macOS Keychain (`gated-docs-*`) | All credentials |
+| `~/.config/gated-knowledge/config.json` | Enabled sources and settings |
+| `~/.config/gated-knowledge/structure.json` | Scan output (document index, schemas) |
+| OS credential store | All credentials (see below) |
 | `~/.claude.json` | MCP server registration |
+
+**Credential storage by platform:**
+- **macOS**: Keychain Access (`gated-knowledge-*` entries)
+- **Windows**: DPAPI-encrypted file (`%APPDATA%\gated-knowledge\credentials.json`)
+- **Linux**: libsecret via `secret-tool`
 
 ## Security Model
 
 The entire security story is: **local process + OS-level credential storage**.
 
 - **stdio transport** — the server is a child process of Claude Code, communicating over stdin/stdout. There is no HTTP server, no open port, nothing reachable from the network
-- **macOS Keychain** — all credentials (service account keys, OAuth tokens, API tokens) are stored encrypted in Keychain. They're locked when your Mac is locked and never written to config files, env vars, or disk
+- **OS-level credential storage** — all credentials (service account keys, OAuth tokens, API tokens) are stored encrypted via macOS Keychain, Windows DPAPI, or Linux secret-tool. Never written to config files or env vars
 - **Minimal permissions** — service accounts use read-only access, Gmail uses separate tokens for read vs. send (least privilege)
 - **No intermediaries** — API calls go directly from your machine to Google/Notion/Slack/etc. No proxy, no hosted backend, no telemetry
 - **No vector DB, no embeddings** — search uses native APIs per service (Drive fulltext, Notion search, Slack search). Nothing is indexed locally beyond a lightweight `structure.json` with document names and schemas
 
 ## Requirements
 
-- **macOS** (uses Keychain for credential storage)
+- **macOS, Windows, or Linux**
 - **Node.js 22+** (native TypeScript support)
 - **Claude Code** (MCP client)
 
@@ -314,7 +319,7 @@ gcloud resource-manager org-policies delete iam.disableServiceAccountKeyCreation
 
 **"Token expired" for Gmail** — Re-auth with OAuth2:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
+node --experimental-strip-types bin/gated-knowledge.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
 ```
 
 **BigQuery "Access Denied"** — SA needs project-level roles. See [BigQuery setup](#bigquery).

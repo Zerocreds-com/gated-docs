@@ -1,7 +1,7 @@
 /**
  * Telegram connector — Client API (MTProto) via gramjs.
  * Full access to all chats and messages (not a bot).
- * Uses api_id, api_hash and session string from macOS Keychain.
+ * Uses api_id, api_hash and session string from OS credential store.
  */
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
@@ -39,7 +39,7 @@ async function getClient(): Promise<TelegramClient> {
   if (cachedClient?.connected) return cachedClient;
 
   const creds = getTelegramCreds();
-  if (!creds) throw new Error('Telegram not configured. Run: gated-docs auth telegram');
+  if (!creds) throw new Error('Telegram not configured. Run: gated-knowledge auth telegram');
 
   const session = new StringSession(creds.session);
   const client = new TelegramClient(session, creds.apiId, creds.apiHash, {
