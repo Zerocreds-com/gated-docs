@@ -64,7 +64,7 @@ docs/
 - GitLab uses Personal Access Token (read_api, read_repository scopes), raw fetch against REST API v4
 - GitLab supports self-hosted instances via `gitlab_url` config field (defaults to https://gitlab.com)
 - GitLab resource IDs use prefixed format with optional query params: `project:123`, `commits:123?path=src&ref=dev`
-- Deepgram API key (optional) enables transcription of video/audio files from Google Drive — stored in credential store as `gated-docs-deepgram/default`
+- Deepgram API key (optional) enables transcription of video/audio files from Google Drive — stored in credential store as `gated-knowledge-deepgram/default`
 - Media files (video/audio) are scanned from Google Drive alongside docs/sheets; `read_document` downloads and transcribes them via Deepgram
 - `delete_document` moves Google Drive files to trash (reversible)
 - Sessions source reads MD diffs from `~/.config/session-snapshot/archive/` — auto-detected, no auth needed

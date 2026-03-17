@@ -857,7 +857,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 5. Share your Google Drive folders with the SA email
 
 **Scopes used:** drive.readonly, spreadsheets.readonly, documents.readonly
-**Storage:** Base64-encoded SA JSON in OS keychain under "gated-docs-google/{sa-email}"`,
+**Storage:** Base64-encoded SA JSON in OS keychain under "gated-knowledge-google/{sa-email}"`,
 
   notion: `## Fix Notion credentials
 
@@ -870,7 +870,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 4. Run: \`gated-knowledge auth notion --token <ntn_xxx>\`
 5. Share your Notion pages/databases with the integration
 
-**Storage:** Token in OS keychain under "gated-docs-notion/default"`,
+**Storage:** Token in OS keychain under "gated-knowledge-notion/default"`,
 
   slack: `## Fix Slack credentials
 
@@ -882,7 +882,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 3. Required scopes: channels:read, channels:history, search:read
 4. Run: \`gated-knowledge auth slack --token <xoxb-xxx>\`
 
-**Storage:** Token in OS keychain under "gated-docs-slack/default"`,
+**Storage:** Token in OS keychain under "gated-knowledge-slack/default"`,
 
   telegram: `## Fix Telegram credentials
 
@@ -894,7 +894,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 3. Run: \`gated-knowledge auth telegram --api-id <N> --api-hash <hash>\`
 4. Complete phone verification when prompted
 
-**Storage:** JSON blob (api_id, api_hash, session string) in OS keychain under "gated-docs-telegram/default"`,
+**Storage:** JSON blob (api_id, api_hash, session string) in OS keychain under "gated-knowledge-telegram/default"`,
 
   cloudflare: `## Fix Cloudflare credentials
 
@@ -905,7 +905,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 2. Create token with: Zone:Read, DNS:Read, Workers:Read, Pages:Read, D1:Read
 3. Run: \`gated-knowledge auth cloudflare --token <cf-token>\`
 
-**Storage:** Token in OS keychain under "gated-docs-cloudflare/default"`,
+**Storage:** Token in OS keychain under "gated-knowledge-cloudflare/default"`,
 
   gitlab: `## Fix GitLab credentials
 
@@ -917,7 +917,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 3. Run: \`gated-knowledge auth gitlab --token <glpat-xxx>\`
 4. For self-hosted: \`gated-knowledge auth gitlab --token <token> --url https://gitlab.example.com\`
 
-**Storage:** Token in OS keychain under "gated-docs-gitlab/default"`,
+**Storage:** Token in OS keychain under "gated-knowledge-gitlab/default"`,
 
   gmail: `## Fix Gmail credentials
 
@@ -933,8 +933,8 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 2. Complete browser auth flow (grants gmail.send scope)
 
 **Storage:** OAuth2 refresh tokens (base64 JSON) in keychain:
-  - Read: "gated-docs-gmail/oauth"
-  - Send: "gated-docs-gmail/oauth-send"`,
+  - Read: "gated-knowledge-gmail/oauth"
+  - Send: "gated-knowledge-gmail/oauth-send"`,
 
   deepgram: `## Fix Deepgram credentials
 
@@ -945,7 +945,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 2. Create a key
 3. Run: \`gated-knowledge auth deepgram --token <api-key>\`
 
-**Storage:** Token in OS keychain under "gated-docs-deepgram/default"`,
+**Storage:** Token in OS keychain under "gated-knowledge-deepgram/default"`,
 
   langsmith: `## Fix LangSmith credentials
 
@@ -956,7 +956,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 2. Create or copy an API key
 3. Run: \`gated-knowledge auth langsmith --token <ls-key>\`
 
-**Storage:** Token in OS keychain under "gated-docs-langsmith/default"`,
+**Storage:** Token in OS keychain under "gated-knowledge-langsmith/default"`,
 };
 
 server.tool(

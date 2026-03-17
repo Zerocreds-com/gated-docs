@@ -9,7 +9,8 @@ import { platform, homedir } from 'node:os';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SERVICE_PREFIX = 'gated-docs';
+const SERVICE_PREFIX = 'gated-knowledge';
+const OLD_SERVICE_PREFIX = 'gated-docs';
 
 function isMac(): boolean {
   return platform() === 'darwin';
@@ -108,62 +109,70 @@ export function storeCredential(source: string, account: string, value: string):
 
 /**
  * Retrieve a credential from the OS credential store.
- * Returns null if not found.
+ * Tries new prefix (gated-knowledge) first, falls back to old (gated-docs).
+ * Returns null if not found under either prefix.
  */
 export function getCredential(source: string, account: string): string | null {
-  const service = `${SERVICE_PREFIX}-${source}`;
-
-  try {
-    if (isWindows()) {
-      const creds = loadWindowsCreds();
-      const encrypted = creds[`${service}/${account}`];
-      if (!encrypted) return null;
-      return dpapiDecrypt(encrypted);
-    } else if (isMac()) {
-      return execSync(
-        `security find-generic-password -s "${service}" -a "${account}" -w`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
-    } else {
-      return execSync(
-        `secret-tool lookup service "${service}" account "${account}"`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
+  // Try new prefix first, then old for migration
+  for (const prefix of [SERVICE_PREFIX, OLD_SERVICE_PREFIX]) {
+    const service = `${prefix}-${source}`;
+    try {
+      if (isWindows()) {
+        const creds = loadWindowsCreds();
+        const encrypted = creds[`${service}/${account}`];
+        if (!encrypted) continue;
+        return dpapiDecrypt(encrypted);
+      } else if (isMac()) {
+        return execSync(
+          `security find-generic-password -s "${service}" -a "${account}" -w`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        ).trim();
+      } else {
+        return execSync(
+          `secret-tool lookup service "${service}" account "${account}"`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        ).trim();
+      }
+    } catch {
+      continue;
     }
-  } catch {
-    return null;
   }
+  return null;
 }
 
 /**
  * Delete a credential from the OS credential store.
+ * Deletes from both new and old prefix to clean up legacy entries.
  */
 export function deleteCredential(source: string, account: string): boolean {
-  const service = `${SERVICE_PREFIX}-${source}`;
-
-  try {
-    if (isWindows()) {
-      const creds = loadWindowsCreds();
-      const key = `${service}/${account}`;
-      if (!(key in creds)) return false;
-      delete creds[key];
-      saveWindowsCreds(creds);
-      return true;
-    } else if (isMac()) {
-      execSync(
-        `security delete-generic-password -s "${service}" -a "${account}"`,
-        { stdio: 'pipe' }
-      );
-    } else {
-      execSync(
-        `secret-tool clear service "${service}" account "${account}"`,
-        { stdio: 'pipe' }
-      );
-    }
-    return true;
-  } catch {
-    return false;
+  let deleted = false;
+  for (const prefix of [SERVICE_PREFIX, OLD_SERVICE_PREFIX]) {
+    const service = `${prefix}-${source}`;
+    try {
+      if (isWindows()) {
+        const creds = loadWindowsCreds();
+        const key = `${service}/${account}`;
+        if (key in creds) {
+          delete creds[key];
+          saveWindowsCreds(creds);
+          deleted = true;
+        }
+      } else if (isMac()) {
+        execSync(
+          `security delete-generic-password -s "${service}" -a "${account}"`,
+          { stdio: 'pipe' }
+        );
+        deleted = true;
+      } else {
+        execSync(
+          `secret-tool clear service "${service}" account "${account}"`,
+          { stdio: 'pipe' }
+        );
+        deleted = true;
+      }
+    } catch {}
   }
+  return deleted;
 }
 
 /**
