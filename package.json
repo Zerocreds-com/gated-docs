@@ -4,8 +4,8 @@
   "description": "Local MCP server for auth-gated sources + Claude Code session archive (Google Drive, Notion, Slack, Sessions)",
   "type": "module",
   "bin": {
-    "gated-knowledge": "./bin/gated-docs.ts",
-    "gated-docs": "./bin/gated-docs.ts"
+    "gated-knowledge": "./bin/gated-knowledge.ts",
+    "gated-docs": "./bin/gated-knowledge.ts"
   },
   "scripts": {
     "dev": "node --experimental-strip-types bin/mcp-server.ts",

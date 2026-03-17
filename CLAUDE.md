@@ -18,11 +18,11 @@ Local MCP server for auth-gated sources + Claude Code session archive. Credentia
 
 ```
 bin/
-  gated-docs.ts      — CLI (auth, scan, search, status, setup, deauth)
+  gated-knowledge.ts — CLI (auth, scan, search, status, setup, deauth)
   mcp-server.ts      — MCP server entry point (stdio)
 src/
   types.ts           — Shared types (SourceType, Config, Structure, etc.)
-  config.ts          — ~/.config/gated-docs/ config + structure.json
+  config.ts          — ~/.config/gated-knowledge/ config + structure.json
   keychain.ts        — Cross-platform credential storage (Keychain / DPAPI / libsecret)
   scanner.ts         — Scans all enabled sources → structure.json
   description.ts     — Dynamic MCP tool descriptions from scan data
@@ -46,9 +46,9 @@ docs/
 
 ## Config paths
 
-- Config: `~/.config/gated-docs/config.json`
-- Structure: `~/.config/gated-docs/structure.json`
-- Credentials: OS secure storage (macOS Keychain / Windows `%APPDATA%\gated-docs\` DPAPI / Linux libsecret)
+- Config: `~/.config/gated-knowledge/config.json`
+- Structure: `~/.config/gated-knowledge/structure.json`
+- Credentials: OS secure storage (macOS Keychain / Windows `%APPDATA%\gated-knowledge\` DPAPI / Linux libsecret)
 
 ## Key concepts
 
@@ -76,7 +76,9 @@ docs/
 
 ```bash
 gated-knowledge setup                                          # register MCP in ~/.claude.json
-gated-knowledge auth google --service-account <key.json>       # connect Google Drive
+gated-knowledge auth google                                    # connect Google Drive (OAuth2 browser flow, default)
+gated-knowledge auth google --force                            # add another Google account
+gated-knowledge auth google --service-account <key.json>       # connect Google Drive (SA, for teams)
 gated-knowledge auth notion --token <ntn_xxx>                  # connect Notion
 gated-knowledge auth slack --token <xoxb-xxx>                  # connect Slack
 gated-knowledge auth telegram --api-id <N> --api-hash <hash>   # connect Telegram
@@ -175,9 +177,16 @@ Deduplication: if both formats exist for same session UUID, single-file wins.
 Content: `### User [L:N]`, `### Assistant [L:N]`, `### Bash — desc`, `### Read`, `### Edit` etc.
 `[L:N]` = line number in original JSONL for traceability.
 
+## Google OAuth2 "unverified app" warning
+
+When users run `auth google`, Google shows a red "Google hasn't verified this app" screen. **This is normal** for local CLI tools with a built-in OAuth client. Claude should tell the user:
+- Click **"Advanced" → "Go to gated-knowledge (unsafe)"** to proceed
+- This is safe: credentials stay on the user's machine, nothing goes through any intermediary
+- Only outbound HTTPS calls to Google APIs
+
 ## Current auth
 
-- Google Drive/Sheets/Docs: SA (oauth)
+- Google Drive/Sheets/Docs: OAuth2 (multi-account, permanent refresh tokens)
 - BigQuery: SA + DWD impersonating vladimir@skillset.ae
 - Gmail read: OAuth2 refresh token (permanent)
 - Gmail send: OAuth2 refresh token (permanent)

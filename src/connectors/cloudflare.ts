@@ -204,6 +204,72 @@ export async function scanCloudflare(): Promise<StructureDoc[]> {
   return docs;
 }
 
+// ── Token verification & permission probing ─────────────
+
+export interface CfPermissionProbe {
+  valid: boolean;
+  status?: string;        // 'active' | 'disabled' | 'expired'
+  expires_on?: string;
+  permissions: Record<string, boolean>;  // e.g. { zones: true, workers: false, ... }
+}
+
+export async function probeCloudflarePermissions(token?: string): Promise<CfPermissionProbe> {
+  const t = token || getToken();
+  const headers = { Authorization: `Bearer ${t}` };
+
+  // 1. Verify token
+  let valid = false;
+  let status: string | undefined;
+  let expires_on: string | undefined;
+  try {
+    const res = await fetch(`${CF_API}/user/tokens/verify`, { headers });
+    if (res.ok) {
+      const data = await res.json() as any;
+      valid = data.success === true;
+      status = data.result?.status;
+      expires_on = data.result?.expires_on;
+    }
+  } catch {}
+
+  if (!valid) return { valid, status, permissions: {} };
+
+  // 2. Get account ID
+  let accountId: string | null = null;
+  try {
+    const res = await fetch(`${CF_API}/accounts?per_page=1`, { headers });
+    if (res.ok) {
+      const data = await res.json() as any;
+      accountId = data.result?.[0]?.id || null;
+    }
+  } catch {}
+
+  // 3. Probe each resource type
+  const probes: Array<{ name: string; path: string }> = [
+    { name: 'zones', path: '/zones?per_page=1' },
+  ];
+  if (accountId) {
+    probes.push(
+      { name: 'workers', path: `/accounts/${accountId}/workers/scripts` },
+      { name: 'pages', path: `/accounts/${accountId}/pages/projects?per_page=1` },
+      { name: 'd1', path: `/accounts/${accountId}/d1/database?per_page=1` },
+      { name: 'kv', path: `/accounts/${accountId}/storage/kv/namespaces?per_page=1` },
+      { name: 'r2', path: `/accounts/${accountId}/r2/buckets?per_page=1` },
+    );
+  }
+
+  const permissions: Record<string, boolean> = {};
+  await Promise.all(probes.map(async (p) => {
+    try {
+      const res = await fetch(`${CF_API}${p.path}`, { headers });
+      permissions[p.name] = res.ok;
+    } catch {
+      permissions[p.name] = false;
+    }
+  }));
+
+  return { valid, status, expires_on, permissions };
+}
+
 // ── Search ──────────────────────────────────────────────
 
 export async function searchCloudflare(query: string, limit: number = 10): Promise<SearchResult[]> {

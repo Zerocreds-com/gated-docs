@@ -24,8 +24,8 @@ What it does:
 
 | Source | Auth method | What you get |
 |--------|------------|--------------|
-| **Google Drive** | Service Account | Search files, read Docs & Sheets |
-| **Google Sheets** | Service Account | All tabs with headers and data |
+| **Google Drive** | OAuth2 browser flow | Search files, read Docs & Sheets |
+| **Google Sheets** | OAuth2 browser flow | All tabs with headers and data |
 | **BigQuery** | Service Account | SQL queries, explore datasets/tables/schemas |
 | **Gmail** | OAuth2 refresh tokens | Search inbox, read emails, send emails |
 | **Notion** | Integration token | Search pages, read page content |
@@ -76,18 +76,31 @@ Restart Claude Code. The MCP tools are now available — Claude will call them a
 
 ### Google Drive / Sheets / Docs
 
-**What you need:** A Google Cloud service account key (JSON file).
+**Zero setup required.** Just run:
+
+```bash
+node --experimental-strip-types bin/gated-knowledge.ts auth google
+```
+
+A browser window opens → sign in with your Google account → done. Credentials are stored permanently in your OS credential store — no re-login needed.
+
+> **Note:** You'll see a "Google hasn't verified this app" warning. This is normal for local CLI tools. Click **"Advanced" → "Go to gated-knowledge (unsafe)"** to proceed. This is safe: credentials stay on your machine, nothing is sent anywhere except directly to Google APIs.
+
+**Multi-account:** To add another Google account (e.g. a work account alongside personal):
+
+```bash
+node --experimental-strip-types bin/gated-knowledge.ts auth google --force
+```
+
+Search and scan will aggregate across all connected accounts.
 
 <details>
-<summary>Step-by-step setup</summary>
+<summary>Alternative: Service Account (for shared/team drives)</summary>
 
 1. Create a [Google Cloud project](https://console.cloud.google.com/projectcreate) (free)
 2. Enable APIs: Drive, Sheets, Docs — via [API Library](https://console.cloud.google.com/apis/library)
 3. Create a [Service Account](https://console.cloud.google.com/iam-admin/serviceaccounts) → Keys tab → Create new key → JSON
 4. Share your Google Drive folders with the service account email (Viewer access)
-
-Detailed walkthrough: **[docs/google-setup.md](docs/google-setup.md)**
-</details>
 
 ```bash
 node --experimental-strip-types bin/gated-knowledge.ts auth google --service-account ~/Downloads/key.json
@@ -95,9 +108,12 @@ node --experimental-strip-types bin/gated-knowledge.ts auth google --service-acc
 
 After auth, you can delete the key file — it's stored in your OS credential store.
 
+Detailed walkthrough: **[docs/google-setup.md](docs/google-setup.md)**
+</details>
+
 ### BigQuery
 
-Uses the same Google service account. Grant it IAM roles:
+Uses a Google service account with Domain-Wide Delegation. Grant it IAM roles:
 
 ```bash
 gcloud projects add-iam-policy-binding YOUR_PROJECT \
@@ -189,20 +205,36 @@ node --experimental-strip-types bin/gated-knowledge.ts auth gitlab --token glpat
 
 Claude can then search and read your projects, merge requests (with full diffs and comments), and issues.
 
+### Claude Code Sessions
+
+**No auth needed.** If you have [session-snapshot](https://github.com/kobzevvv/session-snapshot) installed, session tools are automatically available.
+
+```bash
+node --experimental-strip-types bin/gated-knowledge.ts init sessions
+```
+
 ## MCP Tools
 
-Once connected, Claude Code gets these 8 tools:
+Once connected, Claude Code gets up to 16 tools (depending on connected sources):
 
 | Tool | Description |
 |------|-------------|
 | `search` | Full-text search across all sources, or filter by source |
 | `read_document` | Read a document, spreadsheet, page, channel, or resource by ID |
+| `write_document` | Overwrite content in a Google Doc |
+| `delete_document` | Move a Google Drive file to trash (reversible) |
 | `list_sources` | Show connected sources and all indexed documents |
 | `bigquery_query` | Run SQL against BigQuery, get tab-separated results |
 | `bigquery_explore` | List datasets, tables, schemas, or running jobs |
 | `d1_query` | Run SQL against Cloudflare D1 (SQLite syntax) |
 | `check_email` | Search Gmail inbox, read full emails, find verification codes |
 | `send_email` | Send an email via Gmail (requires `auth gmail --send`) |
+| `session_list` | List Claude Code sessions from local archive |
+| `session_search` | Full-text search across session content with date filters |
+| `session_stats` | Aggregated statistics: tool usage, files touched, turn counts |
+| `session_summary` | Structured session summaries: goal, files changed, outcome |
+| `auth_status` | Check credential health (`live_check=true` for API validation) |
+| `auth_fix` | Step-by-step fix instructions for a broken credential |
 
 Tool descriptions are **dynamically generated** from your scan data — Claude sees exactly what documents, tables, and schemas are available.
 
@@ -223,13 +255,30 @@ Once the MCP is connected, just ask Claude in natural language:
 
 Claude will call the right MCP tools automatically.
 
+## Performance
+
+| Operation | Time | Details |
+|-----------|------|---------|
+| MCP server startup | ~2-3s | Loads `structure.json`, registers tools |
+| Scan: Google Drive (100 files) | ~15-20s | Includes metadata enrichment (sheet headers, folder names) |
+| Scan: Google Drive (500 files) | ~60-90s | Progress reported to stderr every 200 files |
+| Scan: Cloudflare | ~3-5s | All zones, workers, pages, D1, KV, R2 |
+| Scan: Sessions (30 sessions) | <1s | Local file listing |
+| Search | <1s | Direct API call to each service |
+| Read document | <1s | Single API call (spreadsheets may take longer with many tabs) |
+| Session stats/summary | <1s | In-memory parsing of MD files |
+
+Connectors are **lazy-imported** on first call — if you only use Google, Slack connector code is never loaded. Structure is loaded once at startup and cached.
+
 ## CLI Reference
 
 All commands:
 
 ```bash
 gated-knowledge setup                                        # Register MCP in ~/.claude.json
-gated-knowledge auth google --service-account <key.json>     # Connect Google Drive/Sheets/Docs
+gated-knowledge auth google                                  # Connect Google Drive (OAuth2 browser flow)
+gated-knowledge auth google --force                          # Add another Google account
+gated-knowledge auth google --service-account <key.json>     # Connect Google Drive (SA, for teams)
 gated-knowledge auth notion --token <ntn_xxx>                # Connect Notion
 gated-knowledge auth slack --token <xoxb-xxx>                # Connect Slack
 gated-knowledge auth telegram --api-id <N> --api-hash <hash> # Connect Telegram
@@ -237,6 +286,8 @@ gated-knowledge auth cloudflare --token <cf-token>           # Connect Cloudflar
 gated-knowledge auth gitlab --token <pat> [--url <url>]      # Connect GitLab (self-hosted or gitlab.com)
 gated-knowledge auth gmail --client-secret-file <json>       # Connect Gmail read (OAuth2)
 gated-knowledge auth gmail --send                            # Connect Gmail send (reuses client creds)
+gated-knowledge auth deepgram --token <api-key>              # Enable video/audio transcription
+gated-knowledge init sessions                                # Set up session archiving
 gated-knowledge scan                                         # Rebuild document index
 gated-knowledge status                                       # Show connections & stats
 gated-knowledge search "query"                               # Test search from terminal
@@ -306,6 +357,13 @@ The entire security story is: **local process + OS-level credential storage**.
 - **Claude Code** (MCP client)
 
 ## Troubleshooting
+
+**"Google hasn't verified this app"** — This is normal for local CLI tools using OAuth2. Click **"Advanced" → "Go to gated-knowledge (unsafe)"** to proceed. Your credentials stay on your machine and are only sent directly to Google APIs. No data passes through any intermediary.
+
+**Credentials broken?** — Claude can diagnose and fix them automatically:
+1. Claude calls `auth_status(live_check=true)` to check which credentials are healthy
+2. Claude calls `auth_fix(source="...")` to get step-by-step repair instructions
+3. Claude runs the fix command for you
 
 **"403 Forbidden"** — API not enabled or SA doesn't have access:
 1. Check API is enabled: [APIs & Services](https://console.cloud.google.com/apis/enabled)

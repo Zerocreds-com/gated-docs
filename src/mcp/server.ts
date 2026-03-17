@@ -653,12 +653,41 @@ async function checkCredentials(liveCheck: boolean): Promise<CredCheck[]> {
   const { hasCredential, getCredential } = await import('../keychain.ts');
   const results: CredCheck[] = [];
 
-  // Google (SA)
-  const googleAccount = config.sources.google?.account;
+  // Google (SA or OAuth multi-account)
   if (config.sources.google?.enabled) {
-    if (!googleAccount) {
+    const googleAccount = config.sources.google?.account;
+    const googleAccounts = config.google_accounts as string[] | undefined;
+    const isOAuth = googleAccount === 'oauth' || (googleAccounts && googleAccounts.length > 0);
+
+    if (isOAuth) {
+      // OAuth multi-account: check each account's token
+      const accounts = googleAccounts?.length ? googleAccounts : ['default'];
+      for (const email of accounts) {
+        const keychainKey = email === 'default' ? 'oauth' : `oauth-${email}`;
+        const hasCred = hasCredential('google', keychainKey);
+        if (!hasCred) {
+          results.push({ source: 'google', credential: `oauth-${email}`, status: 'missing', detail: `OAuth token for ${email} not in keychain`, fix_command: 'gated-knowledge auth google' });
+        } else if (liveCheck) {
+          try {
+            const { google } = await import('googleapis');
+            const token = getCredential('google', keychainKey);
+            const decoded = JSON.parse(Buffer.from(token!, 'base64').toString('utf-8'));
+            const oauth2 = new google.auth.OAuth2(decoded.client_id, decoded.client_secret);
+            oauth2.setCredentials({ refresh_token: decoded.refresh_token });
+            const drive = google.drive({ version: 'v3', auth: oauth2 });
+            await drive.files.list({ pageSize: 1 });
+            results.push({ source: 'google', credential: `oauth-${email}`, status: 'ok', detail: `OAuth: ${email}` });
+          } catch (e: any) {
+            results.push({ source: 'google', credential: `oauth-${email}`, status: 'error', detail: e.message, fix_command: 'gated-knowledge auth google' });
+          }
+        } else {
+          results.push({ source: 'google', credential: `oauth-${email}`, status: 'ok', detail: `OAuth: ${email} (exists, not live-checked)` });
+        }
+      }
+    } else if (!googleAccount) {
       results.push({ source: 'google', credential: 'service-account', status: 'missing', detail: 'No SA account configured', fix_command: 'gated-knowledge auth google --service-account <key.json>' });
     } else {
+      // Service Account path
       const hasCred = hasCredential('google', googleAccount);
       if (!hasCred) {
         results.push({ source: 'google', credential: 'service-account', status: 'missing', detail: `SA ${googleAccount} not in keychain`, fix_command: 'gated-knowledge auth google --service-account <key.json>' });
@@ -667,7 +696,6 @@ async function checkCredentials(liveCheck: boolean): Promise<CredCheck[]> {
           const { getServiceAccountCredentials } = await import('../keychain.ts');
           const creds = getServiceAccountCredentials(googleAccount);
           if (!creds) throw new Error('Failed to decode SA JSON');
-          // Try a lightweight API call
           const { google } = await import('googleapis');
           const auth = new google.auth.GoogleAuth({ credentials: creds as any, scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
           const drive = google.drive({ version: 'v3', auth });
@@ -714,9 +742,14 @@ async function checkCredentials(liveCheck: boolean): Promise<CredCheck[]> {
           const client = new WebClient(token!);
           await client.auth.test();
         } else if (ts.name === 'cloudflare') {
-          const token = getCredential('cloudflare', 'default');
-          const resp = await fetch('https://api.cloudflare.com/client/v4/zones?per_page=1', { headers: { Authorization: `Bearer ${token}` } });
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const { probeCloudflarePermissions } = await import('../connectors/cloudflare.ts');
+          const probe = await probeCloudflarePermissions();
+          if (!probe.valid) throw new Error(`Token ${probe.status || 'invalid'}`);
+          const granted = Object.entries(probe.permissions).filter(([, v]) => v).map(([k]) => k);
+          const denied = Object.entries(probe.permissions).filter(([, v]) => !v).map(([k]) => k);
+          results.push({ source: 'cloudflare', credential: 'token', status: 'ok',
+            detail: `Active. Access: ${granted.join(', ') || 'none'}${denied.length ? `. No access: ${denied.join(', ')}` : ''}` });
+          continue; // skip the generic push below
         } else if (ts.name === 'gitlab') {
           const token = getCredential('gitlab', 'default');
           const url = config.gitlab_url || 'https://gitlab.com';
@@ -818,7 +851,7 @@ const AUTH_FIX_GUIDES: Record<string, string> = {
 
 **Steps:**
 1. Go to Google Cloud Console → IAM & Admin → Service Accounts
-2. Create or find existing SA (e.g. gated-docs@PROJECT.iam.gserviceaccount.com)
+2. Create or find existing SA (e.g. gated-knowledge@PROJECT.iam.gserviceaccount.com)
 3. Create a key (JSON format), download it
 4. Run: \`gated-knowledge auth google --service-account <path-to-key.json>\`
 5. Share your Google Drive folders with the SA email

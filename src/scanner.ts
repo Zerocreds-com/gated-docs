@@ -7,13 +7,21 @@ import { hasCredential } from './keychain.ts';
 import { generateDescription } from './description.ts';
 import type { StructureDoc, Structure, SourceType } from './types.ts';
 
-export async function scan(): Promise<Structure> {
+export async function scan(only?: SourceType): Promise<Structure> {
   const config = loadConfig();
   const allDocs: StructureDoc[] = [];
   const errors: string[] = [];
 
+  // If scanning only one source, start with existing docs from other sources
+  if (only) {
+    const existing = loadStructure();
+    if (existing) {
+      allDocs.push(...existing.docs.filter(d => d.source !== only));
+    }
+  }
+
   // Google
-  if (config.sources.google?.enabled && config.sources.google.account) {
+  if ((!only || only === 'google') && config.sources.google?.enabled && config.sources.google.account) {
     if (hasCredential('google', config.sources.google.account)) {
       try {
         const { scanGoogleDrive } = await import('./connectors/google.ts');
@@ -30,7 +38,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // Notion
-  if (config.sources.notion?.enabled) {
+  if ((!only || only === 'notion') && config.sources.notion?.enabled) {
     if (hasCredential('notion', 'default')) {
       try {
         const { scanNotion } = await import('./connectors/notion.ts');
@@ -45,7 +53,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // Slack
-  if (config.sources.slack?.enabled) {
+  if ((!only || only === 'slack') && config.sources.slack?.enabled) {
     if (hasCredential('slack', 'default')) {
       try {
         const { scanSlack } = await import('./connectors/slack.ts');
@@ -60,7 +68,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // BigQuery (uses same Google SA credentials)
-  if (config.sources.google?.enabled && config.sources.google.account) {
+  if ((!only || only === 'google') && config.sources.google?.enabled && config.sources.google.account) {
     if (hasCredential('google', config.sources.google.account)) {
       try {
         const { scanBigQuery } = await import('./connectors/bigquery.ts');
@@ -78,7 +86,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // Telegram
-  if (config.sources.telegram?.enabled) {
+  if ((!only || only === 'telegram') && config.sources.telegram?.enabled) {
     if (hasCredential('telegram', 'default')) {
       try {
         const { scanTelegram } = await import('./connectors/telegram.ts');
@@ -93,7 +101,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // Cloudflare
-  if (config.sources.cloudflare?.enabled) {
+  if ((!only || only === 'cloudflare') && config.sources.cloudflare?.enabled) {
     if (hasCredential('cloudflare', 'default')) {
       try {
         const { scanCloudflare } = await import('./connectors/cloudflare.ts');
@@ -108,7 +116,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // GitLab
-  if (config.sources.gitlab?.enabled) {
+  if ((!only || only === 'gitlab') && config.sources.gitlab?.enabled) {
     if (hasCredential('gitlab', 'default')) {
       try {
         const { scanGitLab } = await import('./connectors/gitlab.ts');
@@ -123,7 +131,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // LangSmith
-  if (config.sources.langsmith?.enabled) {
+  if ((!only || only === 'langsmith') && config.sources.langsmith?.enabled) {
     if (hasCredential('langsmith', 'default')) {
       try {
         const { scanLangSmith } = await import('./connectors/langsmith.ts');
@@ -138,7 +146,7 @@ export async function scan(): Promise<Structure> {
   }
 
   // Sessions (local — no credentials needed, auto-detect if archive exists)
-  {
+  if (!only || only === 'sessions') {
     const sessionsEnabled = config.sources.sessions?.enabled;
     const archiveDir = config.sessions?.archive_dir
       || (await import('node:path')).join((await import('node:os')).homedir(), '.config', 'session-snapshot', 'archive');

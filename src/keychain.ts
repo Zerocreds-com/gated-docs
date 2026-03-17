@@ -23,7 +23,7 @@ function isWindows(): boolean {
 
 function getWindowsCredsPath(): string {
   const base = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
-  const dir = join(base, 'gated-docs');
+  const dir = join(base, 'gated-knowledge');
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return join(dir, 'credentials.json');
 }

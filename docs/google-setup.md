@@ -1,6 +1,6 @@
 # Google Setup Guide
 
-Complete guide to connecting Google services to gated-docs. One service account — access to everything.
+Complete guide to connecting Google services to gated-knowledge. One service account — access to everything.
 
 ## Step 0: Get a Google Cloud Project
 
@@ -39,25 +39,25 @@ A service account is a "robot user" — it has an email address and can be given
 1. Open [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
 2. Make sure your project is selected in the top dropdown
 3. Click **"+ Create Service Account"**
-   - Name: `gated-docs` (or anything)
+   - Name: `gated-knowledge` (or anything)
    - Service account ID auto-fills (this becomes the email)
    - Click **Create and Continue**
    - **Grant this service account access to project** — skip for now (we'll add roles later per service)
    - Click **Done**
 4. You'll see your new service account in the list with an email like:
-   `gated-docs@your-project-id.iam.gserviceaccount.com`
+   `gated-knowledge@your-project-id.iam.gserviceaccount.com`
 5. Click on it → go to **"Keys"** tab → **"Add Key"** → **"Create new key"** → select **JSON** → **Create**
 6. A `.json` file downloads — **this is your key**. Keep it safe.
 
 **Option B: Via gcloud CLI (if installed)**
 
 ```bash
-gcloud iam service-accounts create gated-docs --display-name="gated-docs MCP"
+gcloud iam service-accounts create gated-knowledge --display-name="gated-knowledge MCP"
 ```
 
 Download the key (replace `YOUR_PROJECT_ID`):
 ```bash
-gcloud iam service-accounts keys create ~/Downloads/gated-docs-key.json --iam-account=gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com
+gcloud iam service-accounts keys create ~/Downloads/gated-knowledge-key.json --iam-account=gated-knowledge@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
 **Don't have gcloud?** That's fine — Option A (Console) does everything. If you want gcloud: [Install guide](https://cloud.google.com/sdk/docs/install).
@@ -86,7 +86,7 @@ gcloud services enable calendar-json.googleapis.com```
 #### Google Drive / Sheets / Docs
 Share folders or files with the SA email:
 1. In Google Drive, right-click folder → **Share**
-2. Paste: `gated-docs@YOUR_PROJECT.iam.gserviceaccount.com`
+2. Paste: `gated-knowledge@YOUR_PROJECT.iam.gserviceaccount.com`
 3. Set to **Viewer** (read-only)
 
 **Pro tip:** Share ONE top-level folder → everything inside becomes accessible.
@@ -94,9 +94,9 @@ Share folders or files with the SA email:
 #### BigQuery
 Grant the SA access to query data:
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-knowledge@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
 
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-knowledge@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
 ```
 
 Or via Console: [IAM](https://console.cloud.google.com/iam-admin/iam) → find the SA → Edit → Add roles.
@@ -109,11 +109,11 @@ Share calendars with the SA email:
 1. Google Calendar → Settings → calendar → **Share with specific people**
 2. Add SA email → **See all event details**
 
-## Step 4: Connect to gated-docs
+## Step 4: Connect to gated-knowledge
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth google --service-account ~/Downloads/gated-docs-key.json
-node --experimental-strip-types bin/gated-docs.ts scan
+node --experimental-strip-types bin/gated-knowledge.ts auth google --service-account ~/Downloads/gated-knowledge-key.json
+node --experimental-strip-types bin/gated-knowledge.ts scan
 ```
 
 Done. Delete the key file — it's now in Keychain.
@@ -194,16 +194,16 @@ Like n8n — one-time browser consent, then permanent access via refresh token. 
 1. Enable Gmail API: [Enable Gmail API](https://console.cloud.google.com/apis/api/gmail.googleapis.com)
 2. Create OAuth Client ID:
    - [Credentials page](https://console.cloud.google.com/apis/credentials) → **Create Credentials** → **OAuth client ID**
-   - If prompted for consent screen: **External** → fill app name (e.g. "gated-docs") → add your email as test user → save
+   - If prompted for consent screen: **External** → fill app name (e.g. "gated-knowledge") → add your email as test user → save
    - Application type: **Desktop app** → Create
    - Download the JSON file (or copy Client ID + Client Secret)
 3. Run:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
+node --experimental-strip-types bin/gated-knowledge.ts auth gmail --client-secret-file ~/Downloads/client_secret_*.json
 ```
 4. Browser opens → sign in → grant read-only access → done. Refresh token stored in Keychain permanently.
 
-To disconnect: `node --experimental-strip-types bin/gated-docs.ts deauth gmail`
+To disconnect: `node --experimental-strip-types bin/gated-knowledge.ts deauth gmail`
 
 #### Option B: Domain-Wide Delegation (permanent, requires Workspace admin)
 
@@ -213,7 +213,7 @@ SA impersonates a Workspace user — no token refresh ever. Requires Google Work
 2. Set up DWD — see [Domain-Wide Delegation](#domain-wide-delegation-dwd) section below
 3. Set the impersonation email:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts impersonate user@yourdomain.com
+node --experimental-strip-types bin/gated-knowledge.ts impersonate user@yourdomain.com
 ```
 4. Done. `check_email` now uses SA + DWD permanently.
 
@@ -242,7 +242,7 @@ check_email(message_id="abc123")                             # read full email b
 Requires a separate OAuth2 token with `gmail.send` scope:
 
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth gmail --send
+node --experimental-strip-types bin/gated-knowledge.ts auth gmail --send
 ```
 
 **MCP tool:** `send_email`
@@ -280,9 +280,9 @@ Minimal roles for each service:
 
 Grant roles:
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-knowledge@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
 
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-knowledge@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
 ```
 
 ---
@@ -300,7 +300,7 @@ Pick what you need:
 
 After enabling, run:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts scan
+node --experimental-strip-types bin/gated-knowledge.ts scan
 ```
 
 ---
@@ -322,14 +322,14 @@ Domain-Wide Delegation lets the service account act on behalf of a Google Worksp
 #### Part 1: Enable DWD on the Service Account (GCP Console — you do this)
 
 1. Open [Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
-2. Click on your service account (`gated-docs@...`)
+2. Click on your service account (`gated-knowledge@...`)
 3. Go to **Details** tab → expand **Show domain-wide delegation**
 4. Check **Enable Google Workspace Domain-wide Delegation**
 5. Save — note the **Client ID** (numeric, e.g. `112704238198897838115`)
 
 Or find your Client ID:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts impersonate user@yourdomain.com
+node --experimental-strip-types bin/gated-knowledge.ts impersonate user@yourdomain.com
 # prints the Client ID
 ```
 
@@ -359,21 +359,21 @@ That's it. Changes take effect within a few minutes.
 
 > **Note:** There is no gcloud CLI command for this step — Google only provides the Admin Console UI. This is a one-time setup.
 
-#### Part 3: Configure gated-docs
+#### Part 3: Configure gated-knowledge
 
 ```bash
 # Set the email to impersonate (the Workspace user whose data you want to access)
-node --experimental-strip-types bin/gated-docs.ts impersonate user@yourdomain.com
+node --experimental-strip-types bin/gated-knowledge.ts impersonate user@yourdomain.com
 ```
 
 #### Verify it works
 
 ```bash
 # Test Gmail
-node --experimental-strip-types bin/gated-docs.ts check-email "newer_than:1d"
+node --experimental-strip-types bin/gated-knowledge.ts check-email "newer_than:1d"
 
 # Test BigQuery
-node --experimental-strip-types bin/gated-docs.ts search "test"
+node --experimental-strip-types bin/gated-knowledge.ts search "test"
 ```
 
 ### DWD Scopes Reference
@@ -401,7 +401,7 @@ To add more scopes later, the admin edits the existing DWD entry — doesn't nee
 
 **"401 Unauthorized"** → Credential issue. Re-run:
 ```bash
-node --experimental-strip-types bin/gated-docs.ts auth google --service-account key.json
+node --experimental-strip-types bin/gated-knowledge.ts auth google --service-account key.json
 ```
 
 **"unauthorized_client: Client is unauthorized to retrieve access tokens using this method"** → DWD not configured or not yet active. Check:
@@ -425,5 +425,5 @@ Or via Console: [Org Policies](https://console.cloud.google.com/iam-admin/orgpol
 
 **BigQuery "Access Denied"** → SA needs roles at project level:
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-docs@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:gated-knowledge@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/bigquery.user"
 ```

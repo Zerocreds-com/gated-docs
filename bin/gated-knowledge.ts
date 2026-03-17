@@ -168,7 +168,7 @@ async function cmdAuth() {
     saveConfig(config);
     ok('Config updated');
 
-    await autoScan();
+    await autoScan('notion');
 
   } else if (source === 'slack') {
     const tokenFlag = args.indexOf('--token');
@@ -194,7 +194,7 @@ async function cmdAuth() {
     saveConfig(config);
     ok('Config updated');
 
-    await autoScan();
+    await autoScan('slack');
 
   } else if (source === 'telegram') {
     info('Telegram Client API auth (full access to your chats)');
@@ -238,7 +238,7 @@ async function cmdAuth() {
     saveConfig(config);
     ok('Config updated');
 
-    await autoScan();
+    await autoScan('telegram');
 
   } else if (source === 'cloudflare') {
     const tokenFlag = args.indexOf('--token');
@@ -260,12 +260,33 @@ async function cmdAuth() {
     storeCredential('cloudflare', 'default', token);
     ok('Cloudflare API token stored securely');
 
+    // Verify token & probe permissions
+    console.log(`\n${DIM}Verifying token permissions...${NC}`);
+    try {
+      const { probeCloudflarePermissions } = await import('../src/connectors/cloudflare.ts');
+      const probe = await probeCloudflarePermissions(token);
+      if (!probe.valid) {
+        console.log(`  ${RED}✗ Token verification failed (status: ${probe.status || 'unknown'})${NC}`);
+      } else {
+        console.log(`  ${GREEN}✓ Token is ${probe.status || 'active'}${NC}${probe.expires_on ? ` (expires: ${probe.expires_on})` : ''}`);
+        const entries = Object.entries(probe.permissions);
+        if (entries.length > 0) {
+          console.log(`  Permissions detected:`);
+          for (const [name, hasAccess] of entries) {
+            console.log(`    ${hasAccess ? GREEN + '✓' : RED + '✗'} ${name}${NC}`);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`  ${DIM}(probe failed: ${e.message})${NC}`);
+    }
+
     const config = loadConfig();
     config.sources.cloudflare = { enabled: true };
     saveConfig(config);
     ok('Config updated');
 
-    await autoScan();
+    await autoScan('cloudflare');
 
   } else if (source === 'gitlab') {
     const tokenFlag = args.indexOf('--token');
@@ -297,7 +318,7 @@ async function cmdAuth() {
     saveConfig(config);
     ok('Config updated');
 
-    await autoScan();
+    await autoScan('gitlab');
 
   } else if (source === 'langsmith') {
     const tokenFlag = args.indexOf('--token');
@@ -321,7 +342,7 @@ async function cmdAuth() {
     saveConfig(config);
     ok('Config updated');
 
-    await autoScan();
+    await autoScan('langsmith');
 
   } else if (source === 'deepgram') {
     const tokenFlag = args.indexOf('--token');
@@ -487,13 +508,13 @@ async function authGoogleOAuth() {
     process.exit(1);
   }
 
-  // Discover account email
+  // Discover account email via Drive API (always works, no extra APIs needed)
   oauth2.setCredentials(tokens);
   let accountEmail = 'unknown';
   try {
-    const oauth2Api = google.oauth2({ version: 'v2', auth: oauth2 });
-    const userInfo = await oauth2Api.userinfo.get();
-    accountEmail = userInfo.data.email || 'unknown';
+    const driveForEmail = google.drive({ version: 'v3', auth: oauth2 });
+    const about = await driveForEmail.about.get({ fields: 'user(emailAddress)' });
+    accountEmail = about.data.user?.emailAddress || 'unknown';
   } catch {}
 
   // Store token keyed by email (supports multi-account)
@@ -858,11 +879,14 @@ function updateClaudeMdAuth() {
 
 // ── auto-scan helper ────────────────────────────────────
 
-async function autoScan() {
-  info('Scanning sources...');
+async function autoScan(only?: import('../src/types.ts').SourceType) {
+  info(only ? `Scanning ${only}...` : 'Scanning sources...');
   try {
-    const structure = await scan();
-    ok(`Found ${structure.docs.length} documents`);
+    const structure = await scan(only);
+    const count = only
+      ? structure.docs.filter(d => d.source === only).length
+      : structure.docs.length;
+    ok(`Found ${count} ${only || ''} documents`);
     console.log(`\nRestart Claude Code to pick up the changes.`);
   } catch (e: any) {
     warn(`Scan failed: ${e.message}`);

@@ -28,7 +28,7 @@ src/mcp/server.ts     — All MCP tool registrations (server.tool calls)
 src/connectors/*.ts   — Data source logic (one file per source)
 src/keychain.ts       — getCredential/hasCredential for auth tokens
 src/types.ts          — SourceType, Config, StructureDoc types
-src/config.ts         — loadConfig() for ~/.config/gated-docs/config.json
+src/config.ts         — loadConfig() for ~/.config/gated-knowledge/config.json
 ```
 
 ### Example: adding a simple tool
